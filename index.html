@@ -765,7 +765,6 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
                     ${isDoublon&&html`<span class="doublon-badge">⚠️ Doublon</span>`}
                   </div>
                   <div class="booking-address">${b.address}</div>
-                  ${isAdmin&&b.email&&html`<div class="booking-email">${b.email}</div>`}
                   <div class="booking-end">jusqu'à ${b.endTime}</div>
                 </div>
                 ${canCancel(b)&&!past&&html`<button class="cancel-btn" onClick=${()=>onRequestCancel(b)} title="Annuler">
@@ -961,7 +960,7 @@ function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResid
             <div class="stats-section-title">Classement voisins <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
             ${stats.ranking.map((n,i)=>html`<div class="ranking-row" onClick=${()=>onViewNeighbor(n)}>
               <div class="ranking-pos">${i+1}</div>
-              <div class="ranking-info"><div class="ranking-name">${n.name}</div><div class="ranking-address">${n.address}</div>${n.email&&html`<div style="font-size:11px;color:var(--clay-deep);margin-top:1px;font-style:italic">${n.email}</div>`}</div>
+              <div class="ranking-info"><div class="ranking-name">${n.name}</div><div class="ranking-address">${n.address}</div></div>
               <div class="ranking-stats"><div class="ranking-count">${n.count} résa${n.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(n.duration))}</div></div>
               <${Icon} name="chevron" size=${13} class="bar-chevron"/>
             </div>`)}
@@ -1010,7 +1009,6 @@ function NeighborView({neighbor,bookings,isAdmin,onBack}) {
     <div class="view-heading" style="margin-bottom:16px">
       <h2 class="view-h1">${neighbor.name}</h2>
       <p class="view-sub">${neighbor.address}</p>
-      ${isAdmin&&neighbor.email&&html`<p style="font-size:13px;color:var(--clay-deep);margin:4px 0 0;font-style:italic">${neighbor.email}</p>`}
       <p class="view-sub" style="margin-top:4px">${all.length} réservation${all.length>1?'s':''} au total</p>
     </div>
     <div class="detail-list">
@@ -1422,7 +1420,6 @@ function StatsTableModal({bookings,onClose}) {
             <tr>
               <th class="${sortCol==='name'?'active':''}" onClick=${()=>toggle('name')}>Nom <span class="sort-arrow">${arrow('name')}</span></th>
               <th class="${sortCol==='address'?'active':''}" onClick=${()=>toggle('address')}>Adresse <span class="sort-arrow">${arrow('address')}</span></th>
-              <th>Email</th>
               <th class="${sortCol==='date'?'active':''}" onClick=${()=>toggle('date')}>Date <span class="sort-arrow">${arrow('date')}</span></th>
               <th class="${sortCol==='start'?'active':''}" onClick=${()=>toggle('start')}>Heure début <span class="sort-arrow">${arrow('start')}</span></th>
               <th>Doublon</th>
@@ -1430,11 +1427,10 @@ function StatsTableModal({bookings,onClose}) {
           </thead>
           <tbody>
             ${sorted.length===0
-              ? html`<tr><td colspan="6" style="text-align:center;color:var(--muted);font-style:italic;padding:24px">Aucune réservation sur cette période.</td></tr>`
+              ? html`<tr><td colspan="5" style="text-align:center;color:var(--muted);font-style:italic;padding:24px">Aucune réservation sur cette période.</td></tr>`
               : paginated.map(b=>html`<tr key=${b.id}>
                   <td style="font-weight:600">${b.name||'—'}</td>
                   <td style="color:var(--muted)">${b.address||'—'}</td>
-                  <td style="color:var(--muted);font-style:italic">${b.email||'—'}</td>
                   <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}</td>
                   <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.startTime}</td>
                   <td>${b.doublon?html`<span class="doublon-cell">⚠️ Oui</span>`:''}</td>
