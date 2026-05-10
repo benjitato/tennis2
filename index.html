@@ -410,8 +410,9 @@ async function residentsSave(residents) {
 function checkResident(nom,addressNumber,addressStreet,residents) {
   if(residents.length===0) return false;
   const addr=`${addressNumber} ${addressStreet}`.toLowerCase().trim();
-  const nomL=nom.toLowerCase().trim();
-  return residents.some(r=>r.nom.toLowerCase().trim()===nomL && `${r.addressNumber} ${r.addressStreet}`.toLowerCase().trim()===addr);
+const normalize=s=>s.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const nomL=normalize(nom);
+return residents.some(r=>normalize(r.nom)===nomL && normalize(`${r.addressNumber} ${r.addressStreet}`)===normalize(`${addressNumber} ${addressStreet}`));
 }
 
 /* ============================================================
