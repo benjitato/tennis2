@@ -295,6 +295,12 @@ const START_SLOTS = ALL_SLOTS.slice(0,-1).filter(s => timeToMin(s)+BOOKING_DURAT
 
 const overlaps = (a,b) => a.date===b.date&&!(a.endTime<=b.startTime||a.startTime>=b.endTime);
 const isPastBooking = b => new Date(`${b.date}T${b.endTime}:00`) < new Date();
+   const isOngoing = b => {
+  const now=new Date(), today=dateKey(now);
+  if(b.date!==today) return false;
+  const nowMin=now.getHours()*60+now.getMinutes();
+  return timeToMin(b.startTime)<=nowMin && nowMin<timeToMin(b.endTime);
+};
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const profileAddr = p => p?.addressNumber&&p?.addressStreet ? `${p.addressNumber} ${p.addressStreet}` : (p?.address||'');
 const profileFullName = p => p?.prenom && p?.nom ? `${p.prenom} ${p.nom}` : (p?.name||'');
@@ -752,16 +758,17 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
             ${bookings.map(b=>{
               const mine=b.name===profileFullName(profile)&&b.address===profileAddr(profile);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
-              return html`<div class="booking-row" key=${b.id}>
+              const ongoing=isOngoing(b); return html`<div class="booking-row" key=${b.id} style=${ongoing?'background:rgba(45,74,55,.07);border-radius:12px':''}>`
                 <div class="booking-time">
                   <div class="booking-time-h">${b.startTime}</div>
                   <div class="booking-time-d">1 h</div>
                 </div>
                 <div class="booking-divider ${mine?'mine':''}"></div>
                 <div class="booking-info">
-                  <div class="booking-name">
+                <div class="booking-name">
                     <span>${mine?html`<em style="font-style:normal">Vous</em>`:b.name}</span>
                     ${isDoublon&&html`<span class="doublon-badge">⚠️ Doublon</span>`}
+                    ${ongoing&&html`<span style="font-size:10px;background:var(--green);color:var(--paper);padding:2px 7px;border-radius:999px;font-weight:700">🎾 En cours</span>`}
                   </div>
                   <div class="booking-address">${b.address}</div>
                   <div class="booking-end">jusqu'à ${b.endTime}</div>
