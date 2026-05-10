@@ -759,7 +759,7 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
             ${bookings.map(b=>{
               const mine=b.name===profileFullName(profile)&&b.address===profileAddr(profile);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
-              const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''}" key=${b.id}>`;
+              const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''}" key=${b.id}>
                 <div class="booking-time">
                   <div class="booking-time-h">${b.startTime}</div>
                   <div class="booking-time-d">1 h</div>
