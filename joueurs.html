@@ -58,6 +58,7 @@ import { h, render } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useMemo } from 'https://esm.sh/preact@10.22.0/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
+   if (!localStorage.getItem('tennis-cr-session')) { window.location.href = 'index.html'; }
 
 /* ============================================================
    CONFIGURATION
