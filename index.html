@@ -580,7 +580,7 @@ function App() {
     for(let i=0;i<DAYS_AHEAD;i++){
       const d=new Date(base);d.setDate(base.getDate()+i);
       const k=dateKey(d);
-      const dayB=bookings.filter(b=>b.date===k&&!isPastBooking(b)).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+      const dayB=bookings.filter(b=>b.date===k&&(k===dateKey(new Date())||!isPastBooking(b))).sort((a,b)=>a.startTime.localeCompare(b.startTime));
       out.push({date:d,key:k,bookings:dayB});
     }
     return out;
