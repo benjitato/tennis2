@@ -538,7 +538,7 @@ function App() {
   },[profile]);
 
   const showToast=(msg,kind='success')=>{setToast({msg,kind});setTimeout(()=>setToast(null),2800);};
-  const saveProfile=p=>{saveProfileLocal(p);setProfile(p);setModal(null);setEntryAdmin(false);};
+  const saveProfile=p=>{saveProfileLocal(p);setProfile(p);setModal(null);setEntryAdmin(false);localStorage.setItem('tennis-cr-session','ok');};
   const logout=()=>{
     try{localStorage.removeItem('tennis-cr-profile');localStorage.removeItem('tennis-cr-admin');}catch{}
     setProfile(null);setIsAdmin(false);setModal(null);setView('main');
