@@ -745,7 +745,7 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
     <div class="day-bookings">
       ${bookings.length===0
         ? html`<button class="empty-row" onClick=${past?null:()=>onBook({date:day.key})} disabled=${past}>
-            <span class="empty-text">${past?'Journée passée':'Personne pour le moment.'}</span>
+            ${past&&html`<span class="empty-text">Journée passée</span>`}
             ${!past&&html`<span class="reserve-link">Réserver <${Icon} name="chevron" size=${13}/></span>`}
           </button>`
         : html`<div>
@@ -772,7 +772,6 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
               </div>`;
             })}
             ${!past&&html`<button class="empty-row" onClick=${()=>onBook({date:day.key})} style="border-top:1px solid var(--line)">
-              <span class="empty-text" style="font-style:normal;font-size:13px">Ajouter une réservation</span>
               <span class="reserve-link">Réserver <${Icon} name="chevron" size=${13}/></span>
             </button>`}
           </div>`
