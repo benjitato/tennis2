@@ -548,7 +548,8 @@ function App() {
 
   if(!HAS_CONFIG) return html`<${ConfigMissing}/>`;
   if(loading) return html`<div class="loading-screen"><div class="spinner"></div></div>`;
-  if(!profile) return html`<${ProfileEntry} onSubmit=${saveProfile}/>`;
+  if(!profile && entryAdmin) return html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${true} onBack=${()=>setEntryAdmin(false)}/>`;
+if(!profile) return html`<${ProfileEntry} residents=${residents} onSubmit=${saveProfile} onAdminEntry=${()=>setEntryAdmin(true)}/>`;
 
   const goStats=()=>setView(view==='stats'?'main':'stats');
 
