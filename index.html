@@ -358,13 +358,13 @@ function exportCSV(bookings) {
     const k = `${b.date}|||${b.address||''}`;
     countByKey[k] = (countByKey[k]||0) + 1;
   }
-  const headers = ['Date','Heure début','Heure fin','Nom','Adresse','Email','Doublon'];
+  const headers = ['Date','Heure début','Heure fin','Nom','Adresse','Doublon'];
   const rows = [...bookings]
     .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
     .map(b=>{
       const k = `${b.date}|||${b.address||''}`;
       const doublon = countByKey[k] >= 2 ? 'Oui' : '';
-      return [b.date,b.startTime,b.endTime,b.name||'',b.address||'',b.email||'',doublon];
+      return [b.date,b.startTime,b.endTime,b.name||'',b.address||'',doublon];
     });
   const csv=[headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
@@ -409,8 +409,7 @@ async function residentsSave(residents) {
 
 function checkResident(nom,addressNumber,addressStreet,residents) {
   if(residents.length===0) return false;
-  const addr=`${addressNumber} ${addressStreet}`.toLowerCase().trim();
-const normalize=s=>s.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const normalize=s=>s.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 const nomL=normalize(nom);
 return residents.some(r=>normalize(r.nom)===nomL && normalize(`${r.addressNumber} ${r.addressStreet}`)===normalize(`${addressNumber} ${addressStreet}`));
 }
@@ -540,7 +539,7 @@ function App() {
   const showToast=(msg,kind='success')=>{setToast({msg,kind});setTimeout(()=>setToast(null),2800);};
   const saveProfile=p=>{saveProfileLocal(p);setProfile(p);setModal(null);setEntryAdmin(false);localStorage.setItem('tennis-cr-session','ok');};
   const logout=()=>{
-    try{localStorage.removeItem('tennis-cr-profile');localStorage.removeItem('tennis-cr-admin');}catch{}
+    try{localStorage.removeItem('tennis-cr-profile');localStorage.removeItem('tennis-cr-admin');localStorage.removeItem('tennis-cr-session');}catch{}
     setProfile(null);setIsAdmin(false);setModal(null);setView('main');
     showToast('Déconnecté');
   };
@@ -738,7 +737,7 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
       ${ticks}
       ${bookings.map(b=>{
         const sm=timeToMin(b.startTime)-COURT_OPEN_HOUR*60, w=durationMin(b.startTime,b.endTime);
-        const mine=b.name===profile.name&&b.address===profileAddr(profile);
+        const mine=b.name===profileFullName(profile)&&b.address===profileAddr(profile);
         return html`<div class="strip-block ${mine?'mine':''}" style=${`left:${(sm/total)*100}%;width:${(w/total)*100}%`} title=${`${b.startTime}–${b.endTime} · ${b.name}`}></div>`;
       })}
     </div>
@@ -751,7 +750,7 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
           </button>`
         : html`<div>
             ${bookings.map(b=>{
-              const mine=b.name===profile.name&&b.address===profileAddr(profile);
+              const mine=b.name===profileFullName(profile)&&b.address===profileAddr(profile);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
               return html`<div class="booking-row" key=${b.id}>
                 <div class="booking-time">
@@ -1074,7 +1073,7 @@ function PersonalStatsModal({profile,bookings,onClose,onLogout}) {
   ,[bookings,addr]);
   return html`<${Modal} onClose=${onClose}>
     <div class="modal-header">
-      <div><div class="modal-eyebrow">Mon compte</div><h3 class="modal-title">${profile.name}</h3></div>
+      <div><div class="modal-eyebrow">Mon compte</div><h3 class="modal-title">${profileFullName(profile)}</h3></div>
       <button class="modal-close" onClick=${onClose}><${Icon} name="x"/></button>
     </div>
     <div class="modal-body">
@@ -1394,8 +1393,8 @@ function StatsTableModal({bookings,onClose}) {
   const start=(page-1)*PAGE_SIZE+1, end=Math.min(page*PAGE_SIZE,sorted.length);
 
   function dlCSV(){
-    const headers=['Nom','Adresse','Email','Date','Heure début','Doublon'];
-    const rows=sorted.map(b=>[b.name||'',b.address||'',b.email||'',b.date,b.startTime,b.doublon?'Oui':'']);
+    const headers=['Nom','Adresse','Date','Heure début','Doublon'];
+    const rows=sorted.map(b=>[b.name||'',b.address||'',b.date,b.startTime,b.doublon?'Oui':'']);
     const csv=[headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
     const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='stats-reservations.csv';a.click();
