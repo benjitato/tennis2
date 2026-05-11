@@ -76,6 +76,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .booking-end{font-size:11px;color:var(--muted);margin-top:3px}
 .doublon-badge{display:inline-flex;align-items:center;gap:3px;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
    .booking-row.ongoing{background:rgba(45,74,55,.07);border-radius:12px}
+   .booking-row.past-booking{opacity:.4}
 .cancel-btn{padding:8px;border-radius:8px;color:var(--muted);flex-shrink:0}
 .empty-row{width:100%;padding:12px 8px;display:flex;justify-content:flex-end;align-items:center;text-align:left}
 .empty-text{color:var(--muted);font-style:italic;font-size:14px}
@@ -759,7 +760,7 @@ function DayCard({day,profile,isAdmin,doublons,canCancel,onRequestCancel,onBook}
             ${bookings.map(b=>{
               const mine=b.name===profileFullName(profile)&&b.address===profileAddr(profile);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
-              const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''}" key=${b.id}>
+              const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''} ${isPastBooking(b)?'past-booking':''}" key=${b.id}>
                 <div class="booking-time">
                   <div class="booking-time-h">${b.startTime}</div>
                   <div class="booking-time-d">1 h</div>
