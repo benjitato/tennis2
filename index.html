@@ -875,7 +875,7 @@ function MainView({days,profile,isAdmin,doublons,waitlist,meteo,canCancel,onRequ
     </section>
     <div class="day-list">
       ${days.map(d=>html`<${DayCard} key=${d.key} day=${d} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} waitlist=${waitlist} meteo=${meteo}
-        canCancel=${canCancel} onRequestCancel=${onRequestCancel} onBook=${pf=>onBook(pf)} onJoinWaitlist=${onJoinWaitlist}/>`)}
+        canCancel=${canCancel} onRequestCancel=${onRequestCancel} onBook=${pf=>onBook(pf)} onRequestWaitlist=${onRequestWaitlist} onLeaveWaitlist=${onLeaveWaitlist}/>`)}
     </div>
     <footer class="footer">
       <div class="court-line"></div>
