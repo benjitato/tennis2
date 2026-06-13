@@ -686,7 +686,7 @@ function App() {
         if (booking.email) {
           await sendEmail({
             to: booking.email,
-            subject: 'Rappel — liste d'attente sur votre créneau',
+            subject: "Rappel — liste d'attente sur votre créneau",
             html: `<p>Bonjour ${booking.name},</p><p>Votre créneau de <strong>${booking.startTime}</strong> aujourd'hui a un voisin en liste d'attente. Si vous ne pouvez pas jouer, pensez à annuler votre réservation pour lui libérer la place.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
           });
         }
