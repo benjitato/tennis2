@@ -665,7 +665,7 @@ function App() {
           subject: 'Votre créneau est confirmé — Tennis Château Rouge',
           html: `<p>Bonjour ${waiter.name},</p><p>Bonne nouvelle ! Le créneau du <strong>${longDate(new Date(cancelled.date+'T00:00:00'))}</strong> de <strong>${cancelled.startTime} à ${cancelled.endTime}</strong> vient de se libérer et vous êtes automatiquement inscrit(e).</p><p>Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
         });
-        showToast('Réservation annulée · créneau attribué à la liste d'attente');
+        showToast("Réservation annulée · créneau attribué à la liste d'attente");
         return;
       }
     }
