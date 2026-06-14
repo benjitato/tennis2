@@ -526,7 +526,7 @@ function App() {
             <div style="font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:18px;margin-bottom:8px">Aucune annonce pour le moment.</div>
             <div style="font-size:14px">Soyez le premier à publier votre disponibilité.</div>
           </div>`
-        : sorted.map(ann=>html`<${AnnonceCard} key=${ann.id} ann=${ann} isMine=${ann.address===myAddr} isAdmin=${isAdmin} onEdit=${()=>setModal('form')} onDelete=${()=>setModal({type:'delete',targetId:ann.id,targetName:ann.name})}/>`)
+        : sorted.map(ann=>html`<${AnnonceCard} key=${ann.id} ann=${ann} isMine=${ann.personKey&&myPersonKey?ann.personKey===myPersonKey:ann.address===myAddr} isAdmin=${isAdmin} onEdit=${()=>setModal('form')} onDelete=${()=>setModal({type:'delete',targetId:ann.id,targetName:ann.name})}/>`)
       }
     </div>
 
