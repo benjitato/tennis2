@@ -880,10 +880,8 @@ function App() {
     ${modal==='edit-profile'   && html`<${ProfileEditModal} profile=${profile} onClose=${()=>setModal(null)} onSubmit=${saveProfile}/>`}
     ${modal==='personal-stats' && html`<${PersonalStatsModal} profile=${profile} bookings=${bookings} onClose=${()=>setModal(null)} onLogout=${logout} onSaveEmail=${async(email,tel)=>{
       const pUserId = makeUserId(profile);
-      await Promise.all([
-        email?profileEmailSet(pUserId,email):Promise.resolve(),
-        tel!==undefined?profileTelSet(pUserId,tel):Promise.resolve()
-      ]);
+      const currentP = await profileGet(pUserId);
+		await profileSet(pUserId, {...currentP, ...(email?{email}:{}), ...(tel!==undefined?{tel}:{})});
       const p={...profile,email,tel};
       saveProfileLocal(p);setProfile(p);
       showToast('Coordonnées sauvegardées');
@@ -1448,7 +1446,7 @@ function PersonalStatsModal({profile,bookings,onClose,onLogout,onSaveEmail}) {
         <input type="tel" value=${tel} onInput=${e=>{setTel(e.target.value);setSaved(false);}} placeholder="06 xx xx xx xx"/>
         <div class="text-help">Utilisé pour le module "Trouver un partenaire".</div>
       </label>
-      <button onClick=${handleSaveEmail} disabled=${!email.includes('@')||saving} style="width:100%;background:var(--clay);color:var(--paper);padding:13px;border-radius:14px;font-weight:600;font-size:15px;font-family:inherit;cursor:pointer;border:none;margin-bottom:20px">
+      <button onClick=${handleSaveEmail} disabled=${(email&&!email.includes('@'))||(!email&&!tel)||saving} style="width:100%;background:var(--clay);color:var(--paper);padding:13px;border-radius:14px;font-weight:600;font-size:15px;font-family:inherit;cursor:pointer;border:none;margin-bottom:20px">
         ${saving?'Enregistrement...':(saved?'✓ Coordonnées enregistrées':'Enregistrer mes coordonnées')}
       </button>
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.15em;color:var(--muted);font-weight:600;margin-bottom:10px">Mes réservations à venir</div>
