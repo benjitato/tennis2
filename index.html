@@ -664,12 +664,7 @@ function App() {
     }
     saveProfileLocal(finalProfile);setProfile(finalProfile);setModal(null);setEntryAdmin(false);
     localStorage.setItem('tennis-cr-session','ok');
-    // Sauvegarder identité en background pour l'onglet Coordonnées admin
-    (async()=>{try{
-      const userId=makeUserId(finalProfile);
-      const cur=await profileGet(userId);
-      if(!cur.prenom) await profileSet(userId,{...cur,prenom:finalProfile.prenom||'',nom:finalProfile.nom||'',addressNumber:finalProfile.addressNumber||'',addressStreet:finalProfile.addressStreet||''});
-    }catch{}})();
+    (async()=>{try{const userId=makeUserId(finalProfile);const cur=await profileGet(userId);if(!cur.prenom)await profileSet(userId,{...cur,prenom:finalProfile.prenom||'',nom:finalProfile.nom||'',addressNumber:finalProfile.addressNumber||'',addressStreet:finalProfile.addressStreet||''});}catch{}})();
     // Vérifier si la popup doit s'afficher
     if(popup&&popup.active&&popup.version!=null){
       const userId = makeUserId(finalProfile);
@@ -2369,69 +2364,51 @@ function AdminWaitlistTab({waitlist, bookings}) {
 
 /* ---- Onglet Coordonnées ---- */
 function AdminCoordsTab({residents, profiles}) {
-  // Une ligne par personne ayant enregistré ses coordonnées (profil Firebase)
   const list = Object.entries(profiles||{}).map(([key, p]) => {
-    let prenom = p.prenom||'';
-    let nom = p.nom||'';
-    let addressNumber = p.addressNumber||'';
-    let addressStreet = p.addressStreet||'';
+    let prenom=p.prenom||'', nom=p.nom||'', addressNumber=p.addressNumber||'', addressStreet=p.addressStreet||'';
     if (!prenom && !nom) {
-      const parts = key.split('|');
-      if (parts.length >= 4) {
-        prenom = parts[0].replace(/_/g,' ');
-        nom = parts[1].replace(/_/g,' ');
-        addressNumber = parts[2];
-        addressStreet = parts[3].replace(/_/g,' ');
-      }
+      const parts=key.split('|');
+      if(parts.length>=4){prenom=parts[0].replace(/_/g,' ');nom=parts[1].replace(/_/g,' ');addressNumber=parts[2];addressStreet=parts[3].replace(/_/g,' ');}
     }
-    return { prenom, nom, addressNumber, addressStreet, email: p.email||'', tel: p.tel||'' };
-  }).filter(r => r.email || r.tel)
-    .sort((a,b) => a.nom.localeCompare(b.nom) || a.prenom.localeCompare(b.prenom));
+    return {prenom,nom,addressNumber,addressStreet,email:p.email||'',tel:p.tel||''};
+  }).filter(r=>r.email||r.tel).sort((a,b)=>a.nom.localeCompare(b.nom)||a.prenom.localeCompare(b.prenom));
 
-  function exportCSV() {
-    const rows = [['Prénom','Nom','Adresse','Email','Téléphone']];
-    for (const r of list) {
-      rows.push([r.prenom, r.nom, `${r.addressNumber} ${r.addressStreet}`.trim(), r.email, r.tel]);
-    }
-    const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href=url; a.download='coordonnees-residents.csv'; a.click();
+  function exportCSV(){
+    const rows=[['Prénom','Nom','Adresse','Email','Téléphone']];
+    for(const r of list) rows.push([r.prenom,r.nom,`${r.addressNumber} ${r.addressStreet}`.trim(),r.email,r.tel]);
+    const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='coordonnees-residents.csv';a.click();
     URL.revokeObjectURL(url);
   }
 
   return html`<div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div style="font-size:13px;color:var(--muted)">${list.length} personne${list.length>1?'s':''} · ${list.filter(r=>r.email).length} emails · ${list.filter(r=>r.tel).length} tél.</div>
-      <button onClick=${exportCSV} class="btn btn-primary" style="font-size:12px;padding:8px 14px">
-        Exporter CSV
-      </button>
+      <button onClick=${exportCSV} class="btn btn-primary" style="font-size:12px;padding:8px 14px">Exporter CSV</button>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-          <tr style="border-bottom:2px solid var(--line)">
-            <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Prénom Nom</th>
-            <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Adresse</th>
-            <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Email</th>
-            <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Tél.</th>
-          </tr>
-        </thead>
+        <thead><tr style="border-bottom:2px solid var(--line)">
+          <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Prénom Nom</th>
+          <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Adresse</th>
+          <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Email</th>
+          <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Tél.</th>
+        </tr></thead>
         <tbody>
           ${list.length===0
             ? html`<tr><td colspan="4" style="padding:16px 6px;color:var(--muted);font-style:italic">Aucune coordonnée enregistrée.</td></tr>`
             : list.map((r,i)=>html`<tr key=${i} style="border-bottom:1px solid var(--line)">
                 <td style="padding:8px 6px;font-weight:600">${r.prenom} ${r.nom}</td>
                 <td style="padding:8px 6px;color:var(--muted)">${r.addressNumber} ${r.addressStreet}</td>
-                <td style="padding:8px 6px;color:${r.email?'var(--ink)':'var(--muted)'}">${r.email||'—'}</td>
-                <td style="padding:8px 6px;color:${r.tel?'var(--ink)':'var(--muted)'}">${r.tel||'—'}</td>
-              </tr>`)
-          }
+                <td style="padding:8px 6px">${r.email||'—'}</td>
+                <td style="padding:8px 6px">${r.tel||'—'}</td>
+              </tr>`)}
         </tbody>
       </table>
     </div>
-  </div>\`;
+  </div>`;
 }
 
 /* ============================================================
