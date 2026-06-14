@@ -93,6 +93,7 @@ async function profileGet(userId){try{const d=await fbGet(`profiles/${userId}`);
 async function profileSet(userId,data){await fbPut(`profiles/${userId}`,data);}
 const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9|]/g,'_');
 const makeUserId=p=>[p.prenom,p.nom,p.addressNumber,p.addressStreet].map(norm).join('|');
+const makePersonKey=p=>[p.prenom||p.name||'',p.nom||'',p.addressNumber||'',p.addressStreet||''].join('|').toLowerCase();
 
 async function pantryGet() { const d=await fbGet('annonces'); if(!d)return{annonces:[]}; return{annonces:Array.isArray(d)?d:Object.values(d)}; }
 async function pantrySave(annonces) { await fbPut('annonces', annonces); }
@@ -407,8 +408,9 @@ function App() {
   const [syncing,  setSyncing]  = useState(false);
 
   const [isAdmin,  setIsAdmin]  = useState(loadAdminFlag);
-  const myAddr = profile ? profileAddr(profile) : null;
-  const myAnn  = useMemo(()=>annonces.find(a=>a.address===myAddr),[annonces,myAddr]);
+  const myAddr      = profile ? profileAddr(profile) : null;
+  const myPersonKey = profile ? makePersonKey(profile) : null;
+  const myAnn       = useMemo(()=>annonces.find(a=>a.personKey&&myPersonKey?a.personKey===myPersonKey:a.address===myAddr),[annonces,myAddr,myPersonKey]);
 
   useEffect(()=>{
     (async()=>{
@@ -442,7 +444,7 @@ function App() {
     if (myAnn) {
       updated = annonces.map(a=>a.id===myAnn.id?{...a,...data}:a);
     } else {
-      const newAnn={id:uid(),name:profileFullName(profile),address:myAddr,...data,createdAt:now,expiresAt:now+EXPIRE_DAYS*86400000};
+      const newAnn={id:uid(),name:profileFullName(profile),address:myAddr,personKey:myPersonKey,...data,createdAt:now,expiresAt:now+EXPIRE_DAYS*86400000};
       updated=[...annonces,newAnn];
     }
     try {
