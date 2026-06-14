@@ -66,7 +66,7 @@ const html = htm.bind(h);
    CONFIGURATION
    ============================================================ */
 const ADMIN_CODE = 'toto';
-const FB_URL = 'https://jardinduchateau-test-default-rtdb.europe-west1.firebasedatabase.app';
+const FB_URL     = 'https://jardinduchateau-48717-default-rtdb.europe-west1.firebasedatabase.app';
 
 const STREETS    = ['rue du Docteur François', 'rue du Collège'];
 const FR_DAYS    = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
@@ -89,6 +89,11 @@ async function fbPut(path, data) {
   const res = await fetch(`${FB_URL}/${path}.json`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   if (!res.ok) { const t=await res.text().catch(()=>''); throw new Error(`HTTP ${res.status} ${t}`.trim()); }
 }
+async function profileGet(userId){try{const d=await fbGet(`profiles/${userId}`);return d||{};}catch{return {};}}
+async function profileSet(userId,data){await fbPut(`profiles/${userId}`,data);}
+const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9|]/g,'_');
+const makeUserId=p=>[p.prenom,p.nom,p.addressNumber,p.addressStreet].map(norm).join('|');
+
 async function pantryGet() { const d=await fbGet('annonces'); if(!d)return{annonces:[]}; return{annonces:Array.isArray(d)?d:Object.values(d)}; }
 async function pantrySave(annonces) { await fbPut('annonces', annonces); }
 
@@ -180,9 +185,19 @@ function AnnonceCard({ann,isMine,isAdmin,onEdit,onDelete}) {
           </div>
         </div>
         <!-- Contact -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <${Icon} name=${ann.contact.includes('@')?'mail':'phone'} size=${14}/>
-          <span style="font-size:13px;font-weight:600">${ann.contact}</span>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+          ${ann.email&&html`<div style="display:flex;align-items:center;gap:8px">
+            <${Icon} name="mail" size=${14}/>
+            <span style="font-size:13px;font-weight:600;color:${ann.hideEmail?'var(--muted)':'inherit'}">${ann.hideEmail?'Email non public':ann.email}</span>
+          </div>`}
+          ${ann.tel&&html`<div style="display:flex;align-items:center;gap:8px">
+            <${Icon} name="phone" size=${14}/>
+            <span style="font-size:13px;font-weight:600;color:${ann.hideTel?'var(--muted)':'inherit'}">${ann.hideTel?'Téléphone non public':ann.tel}</span>
+          </div>`}
+          ${!ann.email&&!ann.tel&&ann.contact&&html`<div style="display:flex;align-items:center;gap:8px">
+            <${Icon} name=${ann.contact.includes('@')?'mail':'phone'} size=${14}/>
+            <span style="font-size:13px;font-weight:600">${ann.contact}</span>
+          </div>`}
         </div>
         <!-- Expiry -->
         <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:${days<=2?'var(--clay)':'var(--muted)'}">
@@ -195,30 +210,56 @@ function AnnonceCard({ann,isMine,isAdmin,onEdit,onDelete}) {
 }
 
 /* ── AnnonceForm ── */
-function AnnonceForm({existing,onSave,onClose}) {
-  const [niveau,        setNiveau]       = useState(existing?.niveau??3);
-  const [niveauDetail,  setNiveauDetail] = useState(existing?.niveauDetail??'');
-  const [dispos,        setDispos]       = useState(existing?.dispos??[]);
-  const [contact,       setContact]      = useState(existing?.contact??'');
-  const [newDay,        setNewDay]       = useState(FR_DAYS[0]);
-  const [newStart,      setNewStart]     = useState('09:00');
-  const [newEnd,        setNewEnd]       = useState('10:00');
-  const [saving,        setSaving]       = useState(false);
-  const [error,         setError]        = useState(null);
+function AnnonceForm({existing,profile,onSave,onClose}) {
+  const [niveau,        setNiveau]        = useState(existing?.niveau??3);
+  const [niveauDetail,  setNiveauDetail]  = useState(existing?.niveauDetail??'');
+  const [dispos,        setDispos]        = useState(existing?.dispos??[]);
+  const [email,         setEmail]         = useState(existing?.email??'');
+  const [tel,           setTel]           = useState(existing?.tel??'');
+  const [hideEmail,     setHideEmail]     = useState(existing?.hideEmail??false);
+  const [hideTel,       setHideTel]       = useState(existing?.hideTel??false);
+  const [newDay,        setNewDay]        = useState(FR_DAYS[0]);
+  const [newStart,      setNewStart]      = useState('09:00');
+  const [newEnd,        setNewEnd]        = useState('10:00');
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState(null);
+  const [loadingContact,setLoadingContact]= useState(false);
+
+  useEffect(()=>{
+    if (!profile?.prenom||!profile?.nom) return;
+    setLoadingContact(true);
+    profileGet(makeUserId(profile)).then(p=>{
+      if (p.email&&!email) setEmail(p.email);
+      if (p.tel&&!tel)     setTel(p.tel);
+    }).catch(()=>{}).finally(()=>setLoadingContact(false));
+  },[]);
 
   const endOptions = SLOTS_H.filter(h=>h>newStart);
-  const addSlot = () => {
-    if (dispos.length>=MAX_DISPOS) return;
-    setDispos(prev=>[...prev,{day:newDay,start:newStart,end:newEnd}]);
-  };
-  const removeSlot = i => setDispos(prev=>prev.filter((_,idx)=>idx!==i));
+  const addSlot = ()=>{ if(dispos.length>=MAX_DISPOS)return; setDispos(prev=>[...prev,{day:newDay,start:newStart,end:newEnd}]); };
+  const removeSlot = i=>setDispos(prev=>prev.filter((_,idx)=>idx!==i));
 
-  const valid = dispos.length>0 && contact.trim().length>0;
+  const bothHidden = hideEmail&&hideTel;
+  const hasContact = email.trim()||tel.trim();
+  const valid = dispos.length>0 && hasContact && !bothHidden;
 
   async function submit() {
     setSaving(true); setError(null);
-    try { await onSave({niveau,niveauDetail,dispos,contact:contact.trim()}); }
-    catch(e) { setError(e.message||'Erreur'); setSaving(false); }
+    try {
+      if (profile?.prenom&&profile?.nom) {
+        try {
+          const userId=makeUserId(profile);
+          const cur=await profileGet(userId);
+          await profileSet(userId,{
+            ...cur,
+            prenom:profile.prenom||'',nom:profile.nom||'',
+            addressNumber:profile.addressNumber||'',addressStreet:profile.addressStreet||'',
+            ...(email.trim()?{email:email.trim()}:{}),
+            ...(tel.trim()?{tel:tel.trim()}:{})
+          });
+        } catch {}
+      }
+      await onSave({niveau,niveauDetail,dispos,email:email.trim(),tel:tel.trim(),hideEmail,hideTel});
+    } catch(e) { setError(e.message||'Erreur'); setSaving(false); }
   }
 
   return html`<${Modal} onClose=${onClose}>
@@ -272,8 +313,25 @@ function AnnonceForm({existing,onSave,onClose}) {
 
       <!-- Contact -->
       <div>
-        <div class="field-label">Contact (email ou téléphone)</div>
-        <input value=${contact} onInput=${e=>setContact(e.target.value)} placeholder="votre@email.fr ou 06 xx xx xx xx"/>
+        <div class="field-label">Coordonnées</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <input type="email" value=${email} onInput=${e=>setEmail(e.target.value)} placeholder=${loadingContact?'Chargement...':'votre@email.fr'} disabled=${loadingContact}/>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:13px;color:var(--muted);user-select:none">
+              <input type="checkbox" checked=${hideEmail} onChange=${e=>setHideEmail(e.target.checked)} style="width:auto;padding:0;border:none;background:none;box-shadow:none;margin:0;cursor:pointer"/>
+              Masquer mon email aux autres joueurs
+            </label>
+          </div>
+          <div>
+            <input type="tel" value=${tel} onInput=${e=>setTel(e.target.value)} placeholder=${loadingContact?'Chargement...':'06 xx xx xx xx'} disabled=${loadingContact}/>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:13px;color:var(--muted);user-select:none">
+              <input type="checkbox" checked=${hideTel} onChange=${e=>setHideTel(e.target.checked)} style="width:auto;padding:0;border:none;background:none;box-shadow:none;margin:0;cursor:pointer"/>
+              Masquer mon téléphone aux autres joueurs
+            </label>
+          </div>
+        </div>
+        ${bothHidden&&html`<p class="text-error" style="margin-top:10px">Vous devez laisser au moins un moyen de contact visible pour être joignable.</p>`}
+        ${!hasContact&&!loadingContact&&html`<div class="text-help" style="margin-top:6px">Renseignez au moins un email ou un téléphone.</div>`}
       </div>
 
       ${error&&html`<p class="text-error">${error}</p>`}
@@ -472,7 +530,7 @@ function App() {
 
     <!-- Modals -->
     ${modal==='admin'&&html`<${AdminModal} onClose=${()=>setModal(null)} onSubmit=${tryAdmin}/>`}
-    ${modal==='form'&&html`<${AnnonceForm} existing=${myAnn} onSave=${saveAnn} onClose=${()=>setModal(null)}/>`}
+    ${modal==='form'&&html`<${AnnonceForm} existing=${myAnn} profile=${profile} onSave=${saveAnn} onClose=${()=>setModal(null)}/>`}
     ${modal?.type==='delete'&&html`<${Modal} onClose=${()=>setModal(null)}>
       <div style="padding:24px">
         <h3 style="font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;margin:0 0 10px">Supprimer cette annonce ?</h3>
