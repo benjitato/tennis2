@@ -634,7 +634,7 @@ function App() {
         setPopup(pp);
         setJournal(jj);
         setContactCfg(cc);
-        if(anRaw){const arr=Array.isArray(anRaw)?anRaw:Object.values(anRaw);setAnnoncesCount(arr.length);}
+        if(anRaw){const arr=(Array.isArray(anRaw)?anRaw:Object.values(anRaw)).filter(Boolean);setAnnoncesCount(arr.length);}
       }catch{}finally{setLoading(false);}
     })();
   },[]);
