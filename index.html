@@ -1408,6 +1408,14 @@ function WeekdayView({weekday,period,bookings,onBack}) {
 function PersonalStatsModal({profile,bookings,onClose,onLogout,onSaveEmail}) {
   const [email,  setEmail]  = useState(profile.email||'');
   const [tel,    setTel]    = useState(profile.tel||'');
+			useEffect(()=>{
+				  const userId = makeUserId(profile);
+				  if (!userId) return;
+				  profileGet(userId).then(p=>{
+				    if (p.email && !email) setEmail(p.email);
+				    if (p.tel   && !tel)   setTel(p.tel);
+				  }).catch(()=>{});
+				},[]);
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [showAllPast, setShowAllPast] = useState(false);
