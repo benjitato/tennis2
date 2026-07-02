@@ -364,14 +364,15 @@ function computeStats(allBookings, periodDays) {
   const dayMap=[0,0,0,0,0,0,0];
   for(const b of filtered){const d=new Date(`${b.date}T00:00:00`).getDay();dayMap[d]++;}
   const maxDay=Math.max(...dayMap,1);
-  const nm={};
-  for(const b of filtered){
-    const k=b.address||'';
-    if(!nm[k]) nm[k]={name:b.name||'?',address:b.address||'',email:b.email||'',count:0,duration:0};
-    nm[k].count++;nm[k].duration+=durationMin(b.startTime,b.endTime);
-  }
-  const ranking=Object.values(nm).sort((a,b)=>b.count-a.count);
-  return {total,avgDur,occupancy,popularHours,maxHour,dayMap,maxDay,ranking};
+  const hm={};
+for(const b of filtered){
+  const k=b.address||'';
+  const lastName=b.name?b.name.trim().split(' ').slice(-1)[0]:'?';
+  if(!hm[k]) hm[k]={lastName,address:b.address||'',count:0,duration:0};
+  hm[k].count++;hm[k].duration+=durationMin(b.startTime,b.endTime);
+}
+const householdRanking=Object.values(hm).sort((a,b)=>b.count-a.count);
+return {total,avgDur,occupancy,popularHours,maxHour,dayMap,maxDay,householdRanking};
 }
 
 /* ============================================================
@@ -861,8 +862,10 @@ function App() {
         onViewNeighbor=${n=>setView({type:'neighbor',neighbor:n})}
         onViewWeekday=${d=>setView({type:'weekday',weekday:d})}
         onExportCSV=${()=>exportCSV(bookings)}
-        onOpenStatsTable=${()=>setModal('stats-table')}/>`
+        onOpenStatsTable=${()=>setModal('stats-table')}
+		onViewHousehold=${h=>setView({type:'household',household:h})}/>`
     :view?.type==='neighbor' ? html`<${NeighborView} neighbor=${view.neighbor} bookings=${bookings} isAdmin=${isAdmin} onBack=${()=>setView('stats')}/>`
+	:view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${bookings} onBack=${()=>setView('stats')}/>`
     :view?.type==='weekday'  ? html`<${WeekdayView} weekday=${view.weekday} period=${period} bookings=${bookings} onBack=${()=>setView('stats')}/>`
     : html`<${MainView} days=${days} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} annoncesCount=${annoncesCount}
         waitlist=${waitlist} meteo=${meteo}
@@ -1244,7 +1247,7 @@ const niceDateLabel = d => {
 /* ============================================================
    STATS VIEW
    ============================================================ */
-function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResidents,onViewNeighbor,onViewWeekday,onExportCSV,onOpenStatsTable}) {
+function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResidents,onViewNeighbor,onViewWeekday,onExportCSV,onOpenStatsTable,onViewHousehold}) {
   const PERIODS=[{label:'30 jours',days:30},{label:'6 mois',days:182},{label:'12 mois',days:365}];
   const stats=useMemo(()=>computeStats(bookings,period),[bookings,period]);
   const frDays=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -1306,13 +1309,14 @@ function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResid
             </div>`)}
           </div>
           <div class="stats-section">
-            <div class="stats-section-title">Classement voisins <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
-            ${stats.ranking.map((n,i)=>html`<div class="ranking-row" onClick=${()=>onViewNeighbor(n)}>
-              <div class="ranking-pos">${i+1}</div>
-              <div class="ranking-info"><div class="ranking-name">${n.name}</div><div class="ranking-address">${n.address}</div></div>
-              <div class="ranking-stats"><div class="ranking-count">${n.count} résa${n.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(n.duration))}</div></div>
-              <${Icon} name="chevron" size=${13} class="bar-chevron"/>
-            </div>`)}
+  <div class="stats-section-title">Classement foyers <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
+  ${stats.householdRanking.map((h,i)=>html`<div class="ranking-row" onClick=${()=>onViewHousehold(h)}>
+    <div class="ranking-pos">${i+1}</div>
+    <div class="ranking-info"><div class="ranking-name">Famille ${h.lastName}</div><div class="ranking-address">${h.address}</div></div>
+    <div class="ranking-stats"><div class="ranking-count">${h.count} résa${h.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(h.duration))}</div></div>
+    <${Icon} name="chevron" size=${13} class="bar-chevron"/>
+  </div>`)}
+</div>}
           </div>
         `}
     </div>
@@ -1371,7 +1375,43 @@ function NeighborView({neighbor,bookings,isAdmin,onBack}) {
     </div>
   </div>`;
 }
+function HouseholdView({household,bookings,onBack}) {
+  const hBookings=useMemo(()=>
+    bookings.filter(b=>normalizeStr(b.address||'')===normalizeStr(household.address))
+      .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
+  ,[bookings,household]);
+  const past=hBookings.filter(b=>isPastBooking(b));
+  const upcoming=hBookings.filter(b=>!isPastBooking(b));
 
+  const renderList=(list)=>list.map((b,i)=>html`<div key=${i} style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">
+    <div>
+      <div style="font-weight:600;font-size:14px">${b.name}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${longDate(new Date(b.date+'T00:00:00'))} · ${b.startTime} — ${b.endTime}</div>
+    </div>
+  </div>`);
+
+  return html`<div class="view-page">
+    <div class="view-header">
+      <button class="view-back" onClick=${onBack}><${Icon} name="back" size=${18}/></button>
+      <div>
+        <h2 class="view-h1">Famille ${household.lastName}</h2>
+        <p class="view-sub">${household.address} · ${hBookings.length} résa${hBookings.length>1?'s':''} au total</p>
+      </div>
+    </div>
+    <div style="padding:0 20px 40px">
+      ${upcoming.length>0&&html`<div class="stats-section">
+        <div class="stats-section-title">À venir (${upcoming.length})</div>
+        ${renderList(upcoming)}
+      </div>`}
+      <div class="stats-section">
+        <div class="stats-section-title">Historique (${past.length})</div>
+        ${past.length===0
+          ? html`<p class="stats-empty">Aucune réservation passée.</p>`
+          : renderList(past)}
+      </div>
+    </div>
+  </div>`;
+}
 /* ============================================================
    WEEKDAY VIEW
    ============================================================ */
