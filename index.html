@@ -1291,7 +1291,9 @@ function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResid
 
 ${stats.total===0
   ? html`<p class="stats-empty">Aucune réservation sur cette période.</p>`
-  : html`<div>test</div>`}
+  : html`<div class="stats-section">
+  <div class="stats-section-title">Classement foyers</div>
+</div>`}
     </div>
   </div>`;
 }
