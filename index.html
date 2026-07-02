@@ -851,6 +851,7 @@ function App() {
         onRefreshWaitlist=${async()=>{const w=await waitlistGet();setWaitlist(w);return w;}}
         onSaveResidents=${saveResidents}
         onBack=${()=>setView('main')}
+		onUpdateProfile=${async(key,data)=>{const cur=coordsProfiles[key]||{};const updated={...cur,...data};await profileSet(key,updated);setCoordsProfiles(prev=>({...prev,[key]:updated}));}}
         onLogoutAdmin=${logoutAdmin}/>`
     :view==='residents' ? html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${false} onBack=${()=>setView('stats')}/>`
     :view==='history'   ? html`<${HistoryView} bookings=${bookings} onBack=${()=>setView('stats')}/>`
@@ -2168,7 +2169,7 @@ function ContactModal({contactCfg,onClose}) {
 /* ============================================================
    ADMIN PANEL VIEW
    ============================================================ */
-function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onBack,onLogoutAdmin}) {
+function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onBack,onLogoutAdmin,onUpdateProfile}) {
   const [tab, setTab] = useState('popup');
   const [localWaitlist, setLocalWaitlist] = useState(waitlist||[]);
   useEffect(()=>{ if(tab==='waitlist') { onRefreshWaitlist().then(w=>setLocalWaitlist(w)); } },[tab]);
@@ -2195,7 +2196,7 @@ function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,co
       ${tab==='contact'  && html`<${AdminContactTab}  contactCfg=${contactCfg} onSave=${onSaveContactCfg}/>`}
       ${tab==='residents'&& html`<${ResidentsView} residents=${residents} onSave=${onSaveResidents} fromEntry=${false} onBack=${()=>setTab('popup')}/>`}
       ${tab==='waitlist' && html`<${AdminWaitlistTab} waitlist=${localWaitlist} bookings=${bookings}/>`}
-      ${tab==='coords'   && html`<${AdminCoordsTab}   residents=${residents} profiles=${coordsProfiles}/>`}
+	  ${tab==='coords' && html`<${AdminCoordsTab} residents=${residents} profiles=${coordsProfiles} onUpdate=${onUpdateProfile}/>`}
     </div>
   </div>`;
 }
@@ -2371,14 +2372,17 @@ function AdminWaitlistTab({waitlist, bookings}) {
 }
 
 /* ---- Onglet Coordonnées ---- */
-function AdminCoordsTab({residents, profiles}) {
+function AdminCoordsTab({residents, profiles, onUpdate}) {
+  const [editing, setEditing] = useState(null);
+  const [saving,  setSaving]  = useState(false);
+
   const list = Object.entries(profiles||{}).map(([key, p]) => {
     let prenom=p.prenom||'', nom=p.nom||'', addressNumber=p.addressNumber||'', addressStreet=p.addressStreet||'';
     if (!prenom && !nom) {
       const parts=key.split('|');
       if(parts.length>=4){prenom=parts[0].replace(/_/g,' ');nom=parts[1].replace(/_/g,' ');addressNumber=parts[2];addressStreet=parts[3].replace(/_/g,' ');}
     }
-    return {prenom,nom,addressNumber,addressStreet,email:p.email||'',tel:p.tel||''};
+    return {key,prenom,nom,addressNumber,addressStreet,email:p.email||'',tel:p.tel||''};
   }).filter(r=>r.email||r.tel).sort((a,b)=>a.nom.localeCompare(b.nom)||a.prenom.localeCompare(b.prenom));
 
   function exportCSV(){
@@ -2389,6 +2393,15 @@ function AdminCoordsTab({residents, profiles}) {
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='coordonnees-residents.csv';a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onUpdate(editing.key, {email: editing.email.trim(), tel: editing.tel.trim()});
+      setEditing(null);
+    } catch(e) { alert('Erreur : '+e.message); }
+    finally { setSaving(false); }
   }
 
   return html`<div>
@@ -2403,19 +2416,71 @@ function AdminCoordsTab({residents, profiles}) {
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Adresse</th>
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Email</th>
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Tél.</th>
+          <th style="padding:8px 6px"></th>
         </tr></thead>
         <tbody>
           ${list.length===0
-            ? html`<tr><td colspan="4" style="padding:16px 6px;color:var(--muted);font-style:italic">Aucune coordonnée enregistrée.</td></tr>`
+            ? html`<tr><td colspan="5" style="padding:16px 6px;color:var(--muted);font-style:italic">Aucune coordonnée enregistrée.</td></tr>`
             : list.map((r,i)=>html`<tr key=${i} style="border-bottom:1px solid var(--line)">
                 <td style="padding:8px 6px;font-weight:600">${r.prenom} ${r.nom}</td>
                 <td style="padding:8px 6px;color:var(--muted)">${r.addressNumber} ${r.addressStreet}</td>
                 <td style="padding:8px 6px">${r.email||'—'}</td>
                 <td style="padding:8px 6px">${r.tel||'—'}</td>
+                <td style="padding:8px 6px">
+                  <button onClick=${()=>setEditing({...r})}
+                    style="font-size:11px;padding:4px 10px;border-radius:999px;background:var(--clay-soft);color:var(--clay-deep);font-weight:600;border:none;cursor:pointer;font-family:inherit">
+                    Modifier
+                  </button>
+                </td>
               </tr>`)}
         </tbody>
       </table>
     </div>
+
+    ${editing && html`<div class="modal-overlay" onClick=${e=>e.target===e.currentTarget&&setEditing(null)}>
+      <div class="modal" onClick=${e=>e.stopPropagation()}>
+        <div style="padding:22px 24px 8px;display:flex;align-items:flex-start;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:600;margin-bottom:4px">Coordonnées</div>
+            <h3 style="font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;margin:0">${editing.prenom} ${editing.nom}</h3>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">${editing.addressNumber} ${editing.addressStreet}</div>
+          </div>
+          <button onClick=${()=>setEditing(null)} style="padding:8px;color:var(--muted)">✕</button>
+        </div>
+        <div style="padding:14px 24px 22px;display:flex;flex-direction:column;gap:14px">
+          <div>
+            <div class="field-label">Email</div>
+            <div style="display:flex;gap:8px">
+              <input type="email" value=${editing.email}
+                onInput=${e=>setEditing(prev=>({...prev,email:e.target.value}))}
+                placeholder="votre@email.fr" style="flex:1"/>
+              ${editing.email && html`<button onClick=${()=>setEditing(prev=>({...prev,email:''}))}
+                style="padding:0 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap">
+                Effacer
+              </button>`}
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Téléphone</div>
+            <div style="display:flex;gap:8px">
+              <input type="tel" value=${editing.tel}
+                onInput=${e=>setEditing(prev=>({...prev,tel:e.target.value}))}
+                placeholder="06 xx xx xx xx" style="flex:1"/>
+              ${editing.tel && html`<button onClick=${()=>setEditing(prev=>({...prev,tel:''}))}
+                style="padding:0 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap">
+                Effacer
+              </button>`}
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:4px">
+            <button class="btn btn-secondary" onClick=${()=>setEditing(null)}>Annuler</button>
+            <button class="btn btn-primary" disabled=${saving} onClick=${handleSave}>
+              ${saving ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`}
   </div>`;
 }
 
