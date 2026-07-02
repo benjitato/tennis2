@@ -367,7 +367,7 @@ function computeStats(allBookings, periodDays) {
   const nm={};
   for(const b of filtered){
     const k=b.address||'';
-    if(!nm[k]) nm[k]={name:b.address||'?',address:b.address||'',email:b.email||'',count:0,duration:0};
+    if(!nm[k]) nm[k]={name:b.name||'?',address:b.address||'',email:b.email||'',count:0,duration:0};
     nm[k].count++;nm[k].duration+=durationMin(b.startTime,b.endTime);
   }
   const ranking=Object.values(nm).sort((a,b)=>b.count-a.count);
@@ -1349,7 +1349,7 @@ function HistoryView({bookings,onBack}) {
    ============================================================ */
 function NeighborView({neighbor,bookings,isAdmin,onBack}) {
   const all=useMemo(()=>
-    bookings.filter(b=>b.name===neighbor.name&&b.address===neighbor.address)
+    bookings.filter(b=>normalizeStr(b.name)===normalizeStr(neighbor.name)&&normalizeStr(b.address)===normalizeStr(neighbor.address))
       .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
   ,[bookings,neighbor]);
   return html`<div class="view-page">
