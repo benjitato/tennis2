@@ -1309,14 +1309,10 @@ function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResid
               ${stats.dayMap[d]>0&&html`<${Icon} name="chevron" size=${13} class="bar-chevron"/>`}
             </div>`)}
           </div>
-          <div class="stats-section">
-  <div class="stats-section-title">Classement foyers <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
-  ${(stats.householdRanking||[]).map((h,i)=>html`<div class="ranking-row" onClick=${()=>onViewHousehold(h)}>
-    <div class="ranking-pos">${i+1}</div>
-    <div class="ranking-info"><div class="ranking-name">Famille ${h.lastName}</div><div class="ranking-address">${h.address}</div></div>
-    <div class="ranking-stats"><div class="ranking-count">${h.count} résa${h.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(h.duration))}</div></div>
-    <${Icon} name="chevron" size=${13} class="bar-chevron"/>
-  </div>`)}
+         <div class="stats-section">
+<div class="stats-section-title">Classement foyers <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
+${(stats.householdRanking||[]).map((n,i)=>html`<div class="ranking-row" onClick=${()=>onViewHousehold(n)}><div class="ranking-pos">${i+1}</div><div class="ranking-info"><div class="ranking-name">Famille ${n.lastName}</div><div class="ranking-address">${n.address}</div></div><div class="ranking-stats"><div class="ranking-count">${n.count} résa${n.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(n.duration))}</div></div><${Icon} name="chevron" size=${13} class="bar-chevron"/></div>`)}
+</div>}
 </div>}
           </div>
         `}
