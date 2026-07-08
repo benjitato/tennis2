@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-	<script data-goatcounter="https://chateaurouge.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
-   <meta name="robots" content="noindex, nofollow">
+<script data-goatcounter="https://chateaurouge.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
    <meta name="robots" content="noindex, nofollow">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -65,8 +65,9 @@ const html = htm.bind(h);
 /* ============================================================
    CONFIGURATION
    ============================================================ */
-const ADMIN_CODE = 'toto';
+// Le code admin n'est plus stocké ici : il est vérifié côté serveur (Worker Cloudflare, route /admin-check).
 const FB_URL     = 'https://jardinduchateau-test-default-rtdb.europe-west1.firebasedatabase.app';
+const WORKER_URL = 'https://tennis-email.b-fitoussi.workers.dev';
 
 const STREETS    = ['rue du Docteur François', 'rue du Collège'];
 const FR_DAYS    = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
@@ -91,6 +92,19 @@ async function fbPut(path, data) {
 }
 async function profileGet(userId){try{const d=await fbGet(`profiles/${userId}`);return d||{};}catch{return {};}}
 async function profileSet(userId,data){await fbPut(`profiles/${userId}`,data);}
+/* Vérification du code admin côté serveur (Worker), le secret n'est jamais présent dans ce fichier */
+async function verifyAdminCode(code) {
+  try {
+    const res = await fetch(`${WORKER_URL}/admin-check`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code})
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(()=>({ok:false}));
+    return !!data.ok;
+  } catch { return false; }
+}
 const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9|]/g,'_');
 const makeUserId=p=>[p.prenom,p.nom,p.addressNumber,p.addressStreet].map(norm).join('|');
 const makePersonKey=p=>[p.prenom||p.name||'',p.nom||'',p.addressNumber||'',p.addressStreet||''].join('|').toLowerCase();
@@ -430,8 +444,9 @@ function App() {
 
   const showToast = (msg,kind='success') => { setToast({msg,kind}); setTimeout(()=>setToast(null),2600); };
 
-  const tryAdmin = code => {
-    if(code!==ADMIN_CODE) return false;
+  const tryAdmin = async code => {
+    const ok = await verifyAdminCode(code);
+    if(!ok) return false;
     saveAdminFlag(true); setIsAdmin(true); setModal(null);
     showToast('Mode administrateur activé'); return true;
   };
@@ -562,7 +577,8 @@ function App() {
 function AdminModal({onClose,onSubmit}) {
   const [code,setCode]=useState('');
   const [err,setErr]=useState(false);
-  const handle=()=>{const ok=onSubmit(code);if(!ok) setErr(true);};
+  const [checking,setChecking]=useState(false);
+  const handle=async()=>{if(checking)return;setChecking(true);const ok=await onSubmit(code);setChecking(false);if(!ok) setErr(true);};
   return html`<${Modal} onClose=${onClose}>
     <div style="padding:22px 24px 8px;display:flex;align-items:flex-start;justify-content:space-between">
       <div style="display:flex;align-items:center;gap:12px">
@@ -583,7 +599,7 @@ function AdminModal({onClose,onSubmit}) {
       ${err&&html`<p style="color:#A2351A;font-size:13px;margin:0 0 10px">Code incorrect.</p>`}
       <div style="display:flex;gap:12px">
         <button class="btn btn-secondary" onClick=${onClose}>Annuler</button>
-        <button class="btn btn-green" disabled=${!code} onClick=${handle}>Activer</button>
+        <button class="btn btn-green" disabled=${!code||checking} onClick=${handle}>${checking?'Vérification…':'Activer'}</button>
       </div>
     </div>
   </>`;
