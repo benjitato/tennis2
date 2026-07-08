@@ -626,11 +626,20 @@ function App() {
   },[popup,profile]);
 
   // Charger les profils quand on entre dans admin-panel
+  // Note securite : plus de lecture globale de /profiles (bloquee par les regles Firebase durcies),
+  // on charge un profil par resident connu, ce qui reste autorise par les regles (/profiles/$uid).
   useEffect(()=>{
     if(view==='admin-panel'){
-      fbGet('profiles').then(d=>{setCoordsProfiles(d||{});}).catch(()=>{});
+      (async()=>{
+        const entries = await Promise.all(residents.map(async r=>{
+          const uid = makeUserId(r);
+          try{ const p = await fbGet(`profiles/${uid}`); return [uid, p||{}]; }
+          catch{ return [uid, {}]; }
+        }));
+        setCoordsProfiles(Object.fromEntries(entries));
+      })();
     }
-  },[view]);
+  },[view,residents]);
 
   useEffect(()=>{
     if(!HAS_CONFIG){setLoading(false);return;}
@@ -2440,4 +2449,3 @@ render(html`<${App}/>`, document.getElementById('app'));
 </script>
 </body>
 </html>
-                        
