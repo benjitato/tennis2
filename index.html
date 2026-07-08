@@ -378,14 +378,15 @@ function computeStats(allBookings, periodDays) {
   const dayMap=[0,0,0,0,0,0,0];
   for(const b of filtered){const d=new Date(`${b.date}T00:00:00`).getDay();dayMap[d]++;}
   const maxDay=Math.max(...dayMap,1);
-  const nm={};
+  const hm={};
   for(const b of filtered){
     const k=b.address||'';
-    if(!nm[k]) nm[k]={name:b.address||'?',address:b.address||'',email:b.email||'',count:0,duration:0};
-    nm[k].count++;nm[k].duration+=durationMin(b.startTime,b.endTime);
+    const lastName=b.name?b.name.trim().split(' ').slice(-1)[0]:'?';
+    if(!hm[k]) hm[k]={lastName,address:b.address||'',count:0,duration:0};
+    hm[k].count++;hm[k].duration+=durationMin(b.startTime,b.endTime);
   }
-  const ranking=Object.values(nm).sort((a,b)=>b.count-a.count);
-  return {total,avgDur,occupancy,popularHours,maxHour,dayMap,maxDay,ranking};
+  const householdRanking=Object.values(hm).sort((a,b)=>b.count-a.count);
+  return {total,avgDur,occupancy,popularHours,maxHour,dayMap,maxDay,householdRanking};
 }
 
 /* ============================================================
@@ -626,20 +627,11 @@ function App() {
   },[popup,profile]);
 
   // Charger les profils quand on entre dans admin-panel
-  // Note securite : plus de lecture globale de /profiles (bloquee par les regles Firebase durcies),
-  // on charge un profil par resident connu, ce qui reste autorise par les regles (/profiles/$uid).
   useEffect(()=>{
     if(view==='admin-panel'){
-      (async()=>{
-        const entries = await Promise.all(residents.map(async r=>{
-          const uid = makeUserId(r);
-          try{ const p = await fbGet(`profiles/${uid}`); return [uid, p||{}]; }
-          catch{ return [uid, {}]; }
-        }));
-        setCoordsProfiles(Object.fromEntries(entries));
-      })();
+      fbGet('profiles').then(d=>{setCoordsProfiles(d||{});}).catch(()=>{});
     }
-  },[view,residents]);
+  },[view]);
 
   useEffect(()=>{
     if(!HAS_CONFIG){setLoading(false);return;}
@@ -649,14 +641,14 @@ function App() {
           pantryGet(),residentsGet(),waitlistGet(),fetchMeteo(),
           popupGet(),journalGet(),contactConfigGet(),fbGet('annonces')
         ]);
-        setBookings(bd.bookings);
+        setBookings((bd.bookings||[]).filter(Boolean));
         setResidents(rd.residents);
         setWaitlist(wl);
         if(mt) setMeteo(mt);
         setPopup(pp);
         setJournal(jj);
         setContactCfg(cc);
-        if(anRaw){const arr=(Array.isArray(anRaw)?anRaw:Object.values(anRaw)).filter(Boolean);setAnnoncesCount(arr.length);}
+        if(anRaw){const arr=(Array.isArray(anRaw)?anRaw:Object.values(anRaw)).filter(Boolean).filter(a=>a.expiresAt>Date.now());setAnnoncesCount(arr.length);}
       }catch{}finally{setLoading(false);}
     })();
   },[]);
@@ -665,7 +657,7 @@ function App() {
     if(!HAS_CONFIG||!profile) return;
     const tick=async()=>{
       if(document.hidden) return;
-      try{const d=await pantryGet();setBookings(d.bookings);}catch{}
+      try{const d=await pantryGet();setBookings((d.bookings||[]).filter(Boolean));}catch{}
       try{const w=await waitlistGet();setWaitlist(w);}catch{}
     };
     const id=setInterval(tick,POLL_MS);
@@ -718,7 +710,7 @@ function App() {
   async function createBooking({date,startTime,emailForBooking}) {
     const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
     let fresh;
-    try{fresh=(await pantryGet()).bookings;}catch(e){throw new Error('Lecture impossible');}
+    try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch(e){throw new Error('Lecture impossible');}
     const emailToUse = emailForBooking || profile.email || '';
     const candidate={id:uid(),name:profileFullName(profile),address:profileAddr(profile),email:emailToUse,date,startTime,endTime,createdAt:Date.now()};
     if(fresh.some(b=>overlaps(b,candidate))) throw new Error('Ce créneau est déjà réservé.');
@@ -749,7 +741,7 @@ function App() {
 
   async function cancelBooking(id) {
     let fresh, freshWl;
-    try{fresh=(await pantryGet()).bookings;}catch{showToast('Lecture impossible','error');return;}
+    try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch{showToast('Lecture impossible','error');return;}
     try{freshWl=await waitlistGet();}catch{freshWl=[];}
     const cancelled=fresh.find(b=>b.id===id);
     const updated=fresh.filter(b=>b.id!==id);
@@ -847,6 +839,7 @@ function App() {
         onRefreshWaitlist=${async()=>{const w=await waitlistGet();setWaitlist(w);return w;}}
         onSaveResidents=${saveResidents}
         onBack=${()=>setView('main')}
+		onUpdateProfile=${async(key,data)=>{const cur=coordsProfiles[key]||{};const updated={...cur,...data};await profileSet(key,updated);setCoordsProfiles(prev=>({...prev,[key]:updated}));}}
         onLogoutAdmin=${logoutAdmin}/>`
     :view==='residents' ? html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${false} onBack=${()=>setView('stats')}/>`
     :view==='history'   ? html`<${HistoryView} bookings=${bookings} onBack=${()=>setView('stats')}/>`
@@ -856,8 +849,10 @@ function App() {
         onViewNeighbor=${n=>setView({type:'neighbor',neighbor:n})}
         onViewWeekday=${d=>setView({type:'weekday',weekday:d})}
         onExportCSV=${()=>exportCSV(bookings)}
-        onOpenStatsTable=${()=>setModal('stats-table')}/>`
+        onOpenStatsTable=${()=>setModal('stats-table')}
+        onViewHousehold=${h=>setView({type:'household',household:h})}/>`
     :view?.type==='neighbor' ? html`<${NeighborView} neighbor=${view.neighbor} bookings=${bookings} isAdmin=${isAdmin} onBack=${()=>setView('stats')}/>`
+    :view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${bookings} onBack=${()=>setView('stats')}/>`
     :view?.type==='weekday'  ? html`<${WeekdayView} weekday=${view.weekday} period=${period} bookings=${bookings} onBack=${()=>setView('stats')}/>`
     : html`<${MainView} days=${days} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} annoncesCount=${annoncesCount}
         waitlist=${waitlist} meteo=${meteo}
@@ -1239,7 +1234,7 @@ const niceDateLabel = d => {
 /* ============================================================
    STATS VIEW
    ============================================================ */
-function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResidents,onViewNeighbor,onViewWeekday,onExportCSV,onOpenStatsTable}) {
+function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResidents,onViewNeighbor,onViewWeekday,onExportCSV,onOpenStatsTable,onViewHousehold}) {
   const PERIODS=[{label:'30 jours',days:30},{label:'6 mois',days:182},{label:'12 mois',days:365}];
   const stats=useMemo(()=>computeStats(bookings,period),[bookings,period]);
   const frDays=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -1301,14 +1296,9 @@ function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResid
             </div>`)}
           </div>
           <div class="stats-section">
-            <div class="stats-section-title">Classement voisins <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
-            ${stats.ranking.map((n,i)=>html`<div class="ranking-row" onClick=${()=>onViewNeighbor(n)}>
-              <div class="ranking-pos">${i+1}</div>
-              <div class="ranking-info"><div class="ranking-name">${n.name}</div><div class="ranking-address">${n.address}</div></div>
-              <div class="ranking-stats"><div class="ranking-count">${n.count} résa${n.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(n.duration))}</div></div>
-              <${Icon} name="chevron" size=${13} class="bar-chevron"/>
-            </div>`)}
-          </div>
+      <div class="stats-section-title">Classement foyers <span style="font-size:10px;font-weight:400;opacity:.7">(cliquer pour détail)</span></div>
+      ${(stats.householdRanking||[]).map((n,i)=>html`<div class="ranking-row" onClick=${()=>onViewHousehold(n)}><div class="ranking-pos">${i+1}</div><div class="ranking-info"><div class="ranking-name">Famille ${n.lastName}</div><div class="ranking-address">${n.address}</div></div><div class="ranking-stats"><div class="ranking-count">${n.count} résa${n.count>1?'s':''}</div><div class="ranking-dur">${formatDuration('00:00',minToTime(n.duration))}</div></div><${Icon} name="chevron" size=${13} class="bar-chevron"/></div>`)}
+    </div>
         `}
     </div>
   </div>`;
@@ -1345,7 +1335,7 @@ function HistoryView({bookings,onBack}) {
    ============================================================ */
 function NeighborView({neighbor,bookings,isAdmin,onBack}) {
   const all=useMemo(()=>
-    bookings.filter(b=>b.address===neighbor.address)
+    bookings.filter(b=>normalizeStr(b.name)===normalizeStr(neighbor.name)&&normalizeStr(b.address)===normalizeStr(neighbor.address))
       .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
   ,[bookings,neighbor]);
   return html`<div class="view-page">
@@ -1363,6 +1353,44 @@ function NeighborView({neighbor,bookings,isAdmin,onBack}) {
             <div><span class="detail-time">${b.startTime}–${b.endTime}</span><span class="detail-dur">(1 h)</span></div>
           </div>`)
       }
+    </div>
+  </div>`;
+}
+
+function HouseholdView({household,bookings,onBack}) {
+  const hBookings=useMemo(()=>
+    bookings.filter(b=>normalizeStr(b.address||'')===normalizeStr(household.address))
+      .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
+  ,[bookings,household]);
+  const past=hBookings.filter(b=>isPastBooking(b));
+  const upcoming=hBookings.filter(b=>!isPastBooking(b));
+
+  const renderList=(list)=>list.map((b,i)=>html`<div key=${i} style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">
+    <div>
+      <div style="font-weight:600;font-size:14px">${b.name}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">${longDate(new Date(b.date+'T00:00:00'))} · ${b.startTime} — ${b.endTime}</div>
+    </div>
+  </div>`);
+
+  return html`<div class="view-page">
+    <div class="view-header">
+      <button class="view-back" onClick=${onBack}><${Icon} name="back" size=${18}/></button>
+      <div>
+        <h2 class="view-h1">Famille ${household.lastName}</h2>
+        <p class="view-sub">${household.address} · ${hBookings.length} résa${hBookings.length>1?'s':''} au total</p>
+      </div>
+    </div>
+    <div style="padding:0 20px 40px">
+      ${upcoming.length>0&&html`<div class="stats-section">
+        <div class="stats-section-title">À venir (${upcoming.length})</div>
+        ${renderList(upcoming)}
+      </div>`}
+      <div class="stats-section">
+        <div class="stats-section-title">Historique (${past.length})</div>
+        ${past.length===0
+          ? html`<p class="stats-empty">Aucune réservation passée.</p>`
+          : renderList(past)}
+      </div>
     </div>
   </div>`;
 }
@@ -2170,7 +2198,7 @@ function ContactModal({contactCfg,onClose}) {
 /* ============================================================
    ADMIN PANEL VIEW
    ============================================================ */
-function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onBack,onLogoutAdmin}) {
+function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onBack,onLogoutAdmin,onUpdateProfile}) {
   const [tab, setTab] = useState('popup');
   const [localWaitlist, setLocalWaitlist] = useState(waitlist||[]);
   useEffect(()=>{ if(tab==='waitlist') { onRefreshWaitlist().then(w=>setLocalWaitlist(w)); } },[tab]);
@@ -2197,7 +2225,7 @@ function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,co
       ${tab==='contact'  && html`<${AdminContactTab}  contactCfg=${contactCfg} onSave=${onSaveContactCfg}/>`}
       ${tab==='residents'&& html`<${ResidentsView} residents=${residents} onSave=${onSaveResidents} fromEntry=${false} onBack=${()=>setTab('popup')}/>`}
       ${tab==='waitlist' && html`<${AdminWaitlistTab} waitlist=${localWaitlist} bookings=${bookings}/>`}
-      ${tab==='coords'   && html`<${AdminCoordsTab}   residents=${residents} profiles=${coordsProfiles}/>`}
+      ${tab==='coords' && html`<${AdminCoordsTab} residents=${residents} profiles=${coordsProfiles} onUpdate=${onUpdateProfile}/>`}
     </div>
   </div>`;
 }
@@ -2373,14 +2401,17 @@ function AdminWaitlistTab({waitlist, bookings}) {
 }
 
 /* ---- Onglet Coordonnées ---- */
-function AdminCoordsTab({residents, profiles}) {
+function AdminCoordsTab({residents, profiles, onUpdate}) {
+  const [editing, setEditing] = useState(null);
+  const [saving,  setSaving]  = useState(false);
+
   const list = Object.entries(profiles||{}).map(([key, p]) => {
     let prenom=p.prenom||'', nom=p.nom||'', addressNumber=p.addressNumber||'', addressStreet=p.addressStreet||'';
     if (!prenom && !nom) {
       const parts=key.split('|');
       if(parts.length>=4){prenom=parts[0].replace(/_/g,' ');nom=parts[1].replace(/_/g,' ');addressNumber=parts[2];addressStreet=parts[3].replace(/_/g,' ');}
     }
-    return {prenom,nom,addressNumber,addressStreet,email:p.email||'',tel:p.tel||''};
+    return {key,prenom,nom,addressNumber,addressStreet,email:p.email||'',tel:p.tel||''};
   }).filter(r=>r.email||r.tel).sort((a,b)=>a.nom.localeCompare(b.nom)||a.prenom.localeCompare(b.prenom));
 
   function exportCSV(){
@@ -2391,6 +2422,15 @@ function AdminCoordsTab({residents, profiles}) {
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='coordonnees-residents.csv';a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onUpdate(editing.key, {email: editing.email.trim(), tel: editing.tel.trim()});
+      setEditing(null);
+    } catch(e) { alert('Erreur : '+e.message); }
+    finally { setSaving(false); }
   }
 
   return html`<div>
@@ -2405,19 +2445,71 @@ function AdminCoordsTab({residents, profiles}) {
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Adresse</th>
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Email</th>
           <th style="text-align:left;padding:8px 6px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Tél.</th>
+          <th style="padding:8px 6px"></th>
         </tr></thead>
         <tbody>
           ${list.length===0
-            ? html`<tr><td colspan="4" style="padding:16px 6px;color:var(--muted);font-style:italic">Aucune coordonnée enregistrée.</td></tr>`
+            ? html`<tr><td colspan="5" style="padding:16px 6px;color:var(--muted);font-style:italic">Aucune coordonnée enregistrée.</td></tr>`
             : list.map((r,i)=>html`<tr key=${i} style="border-bottom:1px solid var(--line)">
                 <td style="padding:8px 6px;font-weight:600">${r.prenom} ${r.nom}</td>
                 <td style="padding:8px 6px;color:var(--muted)">${r.addressNumber} ${r.addressStreet}</td>
                 <td style="padding:8px 6px">${r.email||'—'}</td>
                 <td style="padding:8px 6px">${r.tel||'—'}</td>
+                <td style="padding:8px 6px">
+                  <button onClick=${()=>setEditing({...r})}
+                    style="font-size:11px;padding:4px 10px;border-radius:999px;background:var(--clay-soft);color:var(--clay-deep);font-weight:600;border:none;cursor:pointer;font-family:inherit">
+                    Modifier
+                  </button>
+                </td>
               </tr>`)}
         </tbody>
       </table>
     </div>
+
+    ${editing && html`<div class="modal-overlay" onClick=${e=>e.target===e.currentTarget&&setEditing(null)}>
+      <div class="modal" onClick=${e=>e.stopPropagation()}>
+        <div style="padding:22px 24px 8px;display:flex;align-items:flex-start;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:600;margin-bottom:4px">Coordonnées</div>
+            <h3 style="font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:600;margin:0">${editing.prenom} ${editing.nom}</h3>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">${editing.addressNumber} ${editing.addressStreet}</div>
+          </div>
+          <button onClick=${()=>setEditing(null)} style="padding:8px;color:var(--muted)">✕</button>
+        </div>
+        <div style="padding:14px 24px 22px;display:flex;flex-direction:column;gap:14px">
+          <div>
+            <div class="field-label">Email</div>
+            <div style="display:flex;gap:8px">
+              <input type="email" value=${editing.email}
+                onInput=${e=>setEditing(prev=>({...prev,email:e.target.value}))}
+                placeholder="votre@email.fr" style="flex:1"/>
+              ${editing.email && html`<button onClick=${()=>setEditing(prev=>({...prev,email:''}))}
+                style="padding:0 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap">
+                Effacer
+              </button>`}
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Téléphone</div>
+            <div style="display:flex;gap:8px">
+              <input type="tel" value=${editing.tel}
+                onInput=${e=>setEditing(prev=>({...prev,tel:e.target.value}))}
+                placeholder="06 xx xx xx xx" style="flex:1"/>
+              ${editing.tel && html`<button onClick=${()=>setEditing(prev=>({...prev,tel:''}))}
+                style="padding:0 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--muted);cursor:pointer;font-size:12px;white-space:nowrap">
+                Effacer
+              </button>`}
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;margin-top:4px">
+            <button class="btn btn-secondary" onClick=${()=>setEditing(null)}>Annuler</button>
+            <button class="btn btn-primary" disabled=${saving} onClick=${handleSave}>
+              ${saving ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`}
   </div>`;
 }
 
