@@ -578,6 +578,72 @@ async function sendEmail({to, subject, html}) {
   } catch(e) { console.warn('Email non envoyé:', e); }
 }
 
+/* ── Templates email ("carnet de match") ──
+   HTML tables + styles inline uniquement (compat Outlook/Gmail), pas de webfonts ni de
+   pseudo-éléments CSS (ignorés par les clients mail) : tout est en Georgia/Arial + SVG inline. */
+const MAIL_GREEN = '#2D4A37', MAIL_CLAY = '#B84A2C', MAIL_NEG = '#6B5240';
+const firstWord = s => (String(s||'').trim().split(/\s+/)[0]) || s || '';
+
+function mailBadge(color, label) {
+  return `<span style="display:inline-block;background:${color};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 12px;border-radius:999px">${escapeHtml(label)}</span>`;
+}
+
+function mailScoreboard(dateObj, startTime, endTime) {
+  const day = dateObj.getDate(), month = FR_MONTHS[dateObj.getMonth()];
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#EFE5CF;border-radius:14px;margin:0 0 10px"><tr>
+    <td style="padding:12px 14px;font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:23px;color:#231811;white-space:nowrap">${day}<span style="display:block;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#8E8273">${escapeHtml(month)}</span></td>
+    <td style="padding:12px 14px;text-align:right"><span style="display:inline-block;background:#ffffff;border-radius:8px;padding:7px 11px;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:13px;color:#231811">${escapeHtml(startTime)} → ${escapeHtml(endTime)}</span></td>
+  </tr></table>`;
+}
+
+function mailVs(nameA, nameB) {
+  const initials = n => escapeHtml(String(n||'').trim().split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase());
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 14px"><tr>
+    <td style="width:44px;height:44px;border-radius:50%;background:${MAIL_CLAY};text-align:center;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;font-weight:700;color:#fff;font-size:14px">${initials(nameA)}</td>
+    <td style="padding:0 12px;font-family:Georgia,'Times New Roman',serif;font-style:italic;color:#8E8273;font-size:14px">vs</td>
+    <td style="width:44px;height:44px;border-radius:50%;background:#8E8273;text-align:center;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;font-weight:700;color:#fff;font-size:14px">${initials(nameB)}</td>
+  </tr></table>`;
+}
+
+function mailRacketsIcon() {
+  return `<div style="text-align:center;margin:0 0 6px"><svg width="52" height="46" viewBox="0 0 60 46" xmlns="http://www.w3.org/2000/svg">
+    <g transform="translate(8,2) rotate(-28 12 8)"><ellipse cx="12" cy="8" rx="9" ry="10.5" fill="none" stroke="${MAIL_GREEN}" stroke-width="2.2"/><line x1="12" y1="18" x2="12" y2="29" stroke="${MAIL_GREEN}" stroke-width="2.2" stroke-linecap="round"/></g>
+    <g transform="translate(28,2) rotate(28 12 8)"><ellipse cx="12" cy="8" rx="9" ry="10.5" fill="none" stroke="${MAIL_CLAY}" stroke-width="2.2"/><line x1="12" y1="18" x2="12" y2="29" stroke="${MAIL_CLAY}" stroke-width="2.2" stroke-linecap="round"/></g>
+    <circle cx="30" cy="33" r="4.5" fill="#DDA83A"/>
+  </svg></div>`;
+}
+
+function mailUndoIcon() {
+  return `<div style="text-align:center;margin:0 0 10px"><table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto"><tr><td style="width:48px;height:48px;border-radius:50%;background:#EFE5CF;text-align:center;vertical-align:middle">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="${MAIL_NEG}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 1 2.5 5.8"/><polyline points="4 16 4 12 8 12"/></svg>
+  </td></tr></table></div>`;
+}
+
+function mailCta(label, href, {ghost=false, color=MAIL_CLAY}={}) {
+  return ghost
+    ? `<p style="margin:0 0 4px"><a href="${href}" style="display:inline-block;border:1.5px solid #DCCFB6;color:#231811;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:13px;padding:10px 18px;border-radius:10px">${escapeHtml(label)}</a></p>`
+    : `<p style="margin:0 0 4px"><a href="${href}" style="display:inline-block;background:${color};color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:13px;padding:11px 20px;border-radius:10px">${escapeHtml(label)}</a></p>`;
+}
+
+function mailShell({badgeColor, badgeLabel, emoji='', icon='', headline, bodyHtml='', scoreboardsHtml='', vsHtml='', ctaHtml='', center=false}) {
+  const c = center || !!vsHtml || !!icon;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#F2EBDB;padding:24px 0"><tr><td align="center">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:440px;background:#ffffff;border:1px solid #DCCFB6;border-radius:14px"><tr><td style="padding:22px 24px 26px">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-bottom:14px"><tr>
+      <td>${mailBadge(badgeColor, badgeLabel)}</td>
+      ${emoji ? `<td align="right" style="font-family:Arial,sans-serif;font-size:18px">${emoji}</td>` : ''}
+    </tr></table>
+    ${icon||''}
+    ${vsHtml||''}
+    <h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:700;font-style:italic;font-size:21px;color:#231811;margin:0 0 10px;line-height:1.25;text-align:${c?'center':'left'}">${headline}</h1>
+    ${bodyHtml ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#3A2F24;margin:0 0 14px;text-align:${c?'center':'left'}">${bodyHtml}</div>` : ''}
+    <div style="text-align:${c?'center':'left'}">${scoreboardsHtml||''}${ctaHtml||''}</div>
+    <div style="border-top:2px dashed #DCCFB6;margin:18px 0 12px"></div>
+    <p style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#8E8273;margin:0">Tennis Château Rouge · Ne pas répondre à cet email</p>
+  </td></tr></table>
+  </td></tr></table>`;
+}
+
 /* ── Météo Open-Meteo ── */
 const WMO_ICONS = {0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',71:'❄️',73:'❄️',75:'❄️',80:'🌦️',81:'🌧️',82:'⛈️',95:'⛈️',96:'⛈️',99:'⛈️'};
 async function fetchMeteo() {
@@ -909,11 +975,12 @@ function App() {
       sendEmail({
         to: emailToUse,
         subject: 'Réservation confirmée — Tennis Château Rouge',
-        html: `<p>Bonjour ${escapeHtml(profileFullName(profile))},</p>
-               <p>Votre réservation est confirmée :</p>
-               <p><strong>${longDate(new Date(candidate.date+'T00:00:00'))}</strong> de <strong>${candidate.startTime} à ${candidate.endTime}</strong></p>
-               <p>Bon match !</p>
-               <p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_GREEN, badgeLabel: 'Réservation', emoji: '🎾',
+          headline: `C'est réservé, ${escapeHtml(firstWord(profileFullName(profile)))}`,
+          scoreboardsHtml: mailScoreboard(new Date(candidate.date+'T00:00:00'), candidate.startTime, candidate.endTime),
+          bodyHtml: `Bon match ! Pensez à annuler depuis l'application si vos plans changent, un voisin pourra prendre le créneau.`
+        })
       }).catch(()=>{});
     }
   }
@@ -941,7 +1008,12 @@ function App() {
         await sendEmail({
           to: waiter.email,
           subject: 'Votre créneau est confirmé — Tennis Château Rouge',
-          html: `<p>Bonjour ${escapeHtml(waiter.name)},</p><p>Bonne nouvelle ! Le créneau du <strong>${longDate(new Date(cancelled.date+'T00:00:00'))}</strong> de <strong>${cancelled.startTime} à ${cancelled.endTime}</strong> vient de se libérer et vous êtes automatiquement inscrit(e).</p><p>Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+          html: mailShell({
+            badgeColor: MAIL_GREEN, badgeLabel: 'Réservation', emoji: '🎾',
+            headline: `Bonne nouvelle, ${escapeHtml(firstWord(waiter.name))} !`,
+            scoreboardsHtml: mailScoreboard(new Date(cancelled.date+'T00:00:00'), cancelled.startTime, cancelled.endTime),
+            bodyHtml: `Ce créneau vient de se libérer et vous y êtes automatiquement inscrit(e). Bon match !`
+          })
         });
         showToast("Réservation annulée · créneau attribué à la liste d'attente");
         return;
@@ -961,10 +1033,18 @@ function App() {
     setWaitlist(updated);
     // Email au titulaire
     if (booking.email) {
+      const waiterInitials = escapeHtml(String(profileFullName(profile)||'').trim().split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase());
       await sendEmail({
         to: booking.email,
         subject: 'Un voisin attend votre créneau — Tennis Château Rouge',
-        html: `<p>Bonjour ${escapeHtml(booking.name)},</p><p><strong>${escapeHtml(profileFullName(profile))}</strong> s'est inscrit(e) en liste d'attente sur votre créneau du <strong>${longDate(new Date(booking.date+'T00:00:00'))}</strong> de <strong>${booking.startTime} à ${booking.endTime}</strong>.</p><p>Si vous ne pouvez finalement pas jouer, pensez à annuler votre réservation pour lui libérer la place.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_NEG, badgeLabel: 'Réservation',
+          headline: `Bonjour ${escapeHtml(firstWord(booking.name))}`,
+          bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#EFE5CF;border-radius:14px;margin:0 0 12px"><tr>
+            <td style="width:44px;padding:12px 0 12px 14px"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="width:30px;height:30px;border-radius:50%;background:#8E8273;text-align:center;vertical-align:middle;font-family:Georgia,serif;font-weight:700;color:#fff;font-size:11px">${waiterInitials}</td></tr></table></td>
+            <td style="padding:12px 14px;font-size:12.5px;line-height:1.5"><strong>${escapeHtml(profileFullName(profile))}</strong> attend votre créneau<br><span style="color:#8E8273">${escapeHtml(longDate(new Date(booking.date+'T00:00:00')))} · ${escapeHtml(booking.startTime)} → ${escapeHtml(booking.endTime)}</span></td>
+          </tr></table>Si vous ne pouvez finalement pas jouer, annulez pour lui libérer la place.`
+        })
       });
     }
     showToast("Inscrit en liste d'attente !");
@@ -1004,9 +1084,14 @@ function App() {
     try{ await challengesSave(updated); }catch{}
     setChallenges(updated);
     toConflictCancel.forEach(c=>{
-      const mailHtml = `<p>Le créneau proposé pour votre défi (<strong>${escapeHtml(c.fromName)}</strong> vs <strong>${escapeHtml(c.toName)}</strong>) vient d'être réservé par quelqu'un d'autre. Le défi a été annulé automatiquement.</p><p>Vous pouvez relancer un défi avec de nouveaux créneaux depuis l'application.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`;
-      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi annulé — créneau indisponible', html:`<p>Bonjour ${escapeHtml(c.fromName)},</p>${mailHtml}`}).catch(()=>{});
-      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi annulé — créneau indisponible', html:`<p>Bonjour ${escapeHtml(c.toName)},</p>${mailHtml}`}).catch(()=>{});
+      const mailHtml = mailShell({
+        badgeColor: MAIL_NEG, badgeLabel: 'Défi annulé', icon: mailUndoIcon(),
+        headline: `Créneau indisponible`,
+        bodyHtml: `Le créneau proposé pour votre défi (<strong>${escapeHtml(c.fromName)}</strong> vs <strong>${escapeHtml(c.toName)}</strong>) vient d'être réservé par quelqu'un d'autre.`,
+        ctaHtml: mailCta('Relancer un défi', APP_URL)
+      });
+      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi annulé — créneau indisponible', html: mailHtml}).catch(()=>{});
+      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi annulé — créneau indisponible', html: mailHtml}).catch(()=>{});
     });
   }
 
@@ -1033,7 +1118,12 @@ function App() {
       sendEmail({
         to: other.email,
         subject: 'Défi annulé — Tennis Château Rouge',
-        html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a annulé son défi avant votre réponse.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_NEG, badgeLabel: 'Défi annulé', icon: mailUndoIcon(),
+          headline: `${escapeHtml(firstWord(profileFullName(profile)))} a annulé le défi`,
+          bodyHtml: `Le défi a été annulé avant votre réponse. Ce n'est que partie remise.`,
+          ctaHtml: mailCta('Proposer un nouveau défi', APP_URL)
+        })
       }).catch(()=>{});
     }
     showToast('Défi annulé');
@@ -1084,18 +1174,18 @@ function App() {
     await challengesSave(updated);
     setChallenges(updated);
     if (entry.toEmail) {
-      const list_ = slots.map(formatSlot).join('<br/>');
       const viewUrl = `${APP_URL}?challenge=${entry.id}&action=view`;
+      const slotsHtml = slots.map(s => mailScoreboard(new Date(s.date+'T00:00:00'), s.startTime, s.endTime)).join('');
       sendEmail({
         to: entry.toEmail,
         subject: `🎾 ${profileFullName(profile)} vous défie au tennis !`,
-        html: `<p>Bonjour ${escapeHtml(entry.toName)},</p>
-               <p><strong>${escapeHtml(profileFullName(profile))}</strong> vous défie pour un match. ${slots.length>1?'Créneaux proposés':'Créneau proposé'} :</p>
-               <p>${list_}</p>
-               <p>Choisissez le créneau qui vous convient, ou proposez-en d'autres directement dans l'application.</p>
-               <div style="margin:16px 0"><a href="${viewUrl}" style="display:inline-block;background:#2D4A37;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">Voir les créneaux proposés</a></div>
-               <p style="font-size:13px;color:#888">Vous pouvez aussi répondre directement dans l'application, rubrique "Défis".</p>
-               <p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_CLAY, badgeLabel: 'Défi', emoji: '🎾',
+          headline: `${escapeHtml(firstWord(profileFullName(profile)))} vous défie !`,
+          bodyHtml: `${slots.length>1?'Créneaux proposés':'Créneau proposé'}, à vous de choisir :`,
+          scoreboardsHtml: slotsHtml,
+          ctaHtml: mailCta('Voir les créneaux', viewUrl)
+        })
       }).catch(()=>{});
     }
     showToast('Défi envoyé !');
@@ -1112,16 +1202,18 @@ function App() {
     setChallenges(updated);
     const other = challengeOtherParty(current, profile);
     if (other.email) {
-      const list_ = slots.map(formatSlot).join('<br/>');
       const viewUrl = `${APP_URL}?challenge=${current.id}&action=view`;
+      const slotsHtml = slots.map(s => mailScoreboard(new Date(s.date+'T00:00:00'), s.startTime, s.endTime)).join('');
       sendEmail({
         to: other.email,
         subject: `${profileFullName(profile)} propose ${slots.length>1?"d'autres créneaux":'un autre créneau'} pour votre défi`,
-        html: `<p>Bonjour ${escapeHtml(other.name)},</p>
-               <p>Aucun des créneaux précédents ne convenait. <strong>${escapeHtml(profileFullName(profile))}</strong> propose :</p>
-               <p>${list_}</p>
-               <div style="margin:16px 0"><a href="${viewUrl}" style="display:inline-block;background:#2D4A37;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">Voir la proposition</a></div>
-               <p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_CLAY, badgeLabel: 'Défi', emoji: '🎾',
+          headline: `Bonjour ${escapeHtml(firstWord(other.name))}`,
+          bodyHtml: `Aucun des créneaux précédents ne convenait. <strong>${escapeHtml(profileFullName(profile))}</strong> propose :`,
+          scoreboardsHtml: slotsHtml,
+          ctaHtml: mailCta('Voir la proposition', viewUrl)
+        })
       }).catch(()=>{});
     }
     showToast('Nouveaux créneaux proposés');
@@ -1152,9 +1244,15 @@ function App() {
     await challengesSave(updatedCh);
     setChallenges(updatedCh);
     completeProfileFromChallenge(current);
-    const mailHtml = `<p><strong>${escapeHtml(current.fromName)}</strong> vs <strong>${escapeHtml(current.toName)}</strong></p><p><strong>${formatSlot(slot)}</strong></p><p>Le court est réservé automatiquement pour vous deux. Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`;
-    if (current.fromEmail) sendEmail({to:current.fromEmail, subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.fromName)},</p>${mailHtml}`}).catch(()=>{});
-    if (current.toEmail)   sendEmail({to:current.toEmail,   subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.toName)},</p>${mailHtml}`}).catch(()=>{});
+    const mailHtml = mailShell({
+      badgeColor: MAIL_GREEN, badgeLabel: 'Match confirmé', emoji: '🎾',
+      icon: mailRacketsIcon(),
+      headline: `${escapeHtml(current.fromName)} vs ${escapeHtml(current.toName)}`,
+      scoreboardsHtml: mailScoreboard(new Date(slot.date+'T00:00:00'), slot.startTime, slot.endTime),
+      bodyHtml: `Le court est réservé automatiquement pour vous deux. Que le meilleur gagne !`
+    });
+    if (current.fromEmail) sendEmail({to:current.fromEmail, subject:'Défi accepté — Tennis Château Rouge', html: mailHtml}).catch(()=>{});
+    if (current.toEmail)   sendEmail({to:current.toEmail,   subject:'Défi accepté — Tennis Château Rouge', html: mailHtml}).catch(()=>{});
     showToast('Défi accepté, réservation confirmée !');
     return {ok:true};
   }
@@ -1171,7 +1269,12 @@ function App() {
       sendEmail({
         to: other.email,
         subject: 'Défi refusé — Tennis Château Rouge',
-        html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a décliné votre défi.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+        html: mailShell({
+          badgeColor: MAIL_NEG, badgeLabel: 'Défi',
+          headline: `${escapeHtml(firstWord(profileFullName(profile)))} a décliné votre défi`,
+          bodyHtml: `Pas de souci, vous pouvez relancer un défi avec un autre créneau ou un autre adversaire quand vous voulez.`,
+          ctaHtml: mailCta('Relancer un défi', APP_URL, {ghost:true})
+        })
       }).catch(()=>{});
     }
     showToast('Défi décliné');
@@ -1209,7 +1312,12 @@ function App() {
       try{await pantrySave(withNew);setBookings(withNew);recheckChallengeConflicts(withNew.filter(b=>!b.cancelled));}catch{}
       const newWl=freshWl.filter(w=>!(w.bookingDate===booking.date&&w.startTime===booking.startTime));
       try{await waitlistSave(newWl);setWaitlist(newWl);}catch{}
-      sendEmail({to:waiter.email, subject:'Votre créneau est confirmé — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(waiter.name)},</p><p>Bonne nouvelle ! Le créneau du <strong>${longDate(new Date(booking.date+'T00:00:00'))}</strong> de <strong>${booking.startTime} à ${booking.endTime}</strong> vient de se libérer et vous êtes automatiquement inscrit(e).</p><p>Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`}).catch(()=>{});
+      sendEmail({to:waiter.email, subject:'Votre créneau est confirmé — Tennis Château Rouge', html: mailShell({
+        badgeColor: MAIL_GREEN, badgeLabel: 'Réservation', emoji: '🎾',
+        headline: `Bonne nouvelle, ${escapeHtml(firstWord(waiter.name))} !`,
+        scoreboardsHtml: mailScoreboard(new Date(booking.date+'T00:00:00'), booking.startTime, booking.endTime),
+        bodyHtml: `Ce créneau vient de se libérer et vous y êtes automatiquement inscrit(e). Bon match !`
+      })}).catch(()=>{});
     }
     if (booking.challengeId) {
       let freshCh;
@@ -1224,7 +1332,12 @@ function App() {
           sendEmail({
             to: other.email,
             subject: 'Défi annulé — Tennis Château Rouge',
-            html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a annulé votre match du ${longDate(new Date(booking.date+'T00:00:00'))} à ${booking.startTime}.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+            html: mailShell({
+              badgeColor: MAIL_NEG, badgeLabel: 'Créneau libéré', icon: mailUndoIcon(),
+              headline: `${escapeHtml(firstWord(profileFullName(profile)))} a annulé le match`,
+              bodyHtml: `Le créneau du ${escapeHtml(longDate(new Date(booking.date+'T00:00:00')))} à ${escapeHtml(booking.startTime)} s'est libéré. Ce n'est que partie remise, à vous de relancer.`,
+              ctaHtml: mailCta('Proposer un nouveau créneau', APP_URL)
+            })
           }).catch(()=>{});
         }
       }
