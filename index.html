@@ -1949,10 +1949,12 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
   const [date,     setDate]     = useState(prefill?.date??dateKey(new Date()));
   const [startTime,setStartTime]= useState(()=>{
     if(prefill?.startTime) return prefill.startTime;
-    const now=new Date(), totalMin=Math.ceil((now.getHours()*60+now.getMinutes())/30)*30;
-    const maxStart=(COURT_CLOSE_HOUR-1)*60;
-    if(totalMin>maxStart) return `${pad(COURT_OPEN_HOUR)}:00`;
-    return minToTime(Math.min(totalMin,maxStart));
+    // Par défaut : l'heure en cours, arrondie à l'heure pile (les créneaux sont horaires).
+    const now=new Date();
+    const openMin=COURT_OPEN_HOUR*60, maxStart=(COURT_CLOSE_HOUR-1)*60;
+    const currentHourStart=now.getHours()*60;
+    if(currentHourStart<openMin || currentHourStart>maxStart) return `${pad(COURT_OPEN_HOUR)}:00`;
+    return minToTime(currentHourStart);
   });
   const [error,    setError]    = useState(null);
   const [saving,   setSaving]   = useState(false);
