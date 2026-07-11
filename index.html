@@ -209,6 +209,20 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .stats-tbl tr:hover td{background:var(--bg)}
 .sort-arrow{margin-left:4px;opacity:.6}
 .doublon-cell{background:#FEF3C7;color:#92400E;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.stats-table-filters{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;padding:14px 24px;border-bottom:1px solid var(--line);flex-shrink:0}
+.stats-filter-group{display:flex;flex-direction:column;gap:5px}
+.stats-filter-group label.field-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
+.stats-filter-select{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:8px 10px;min-width:180px}
+.stats-filter-checks{display:flex;gap:12px;flex-wrap:wrap}
+.stats-filter-check{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
+.stats-filter-check input{width:14px;height:14px;accent-color:var(--clay);cursor:pointer}
+.status-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block}
+.status-badge.upcoming{background:var(--clay-soft);color:var(--clay-deep)}
+.status-badge.past{background:var(--strip);color:var(--muted)}
+.status-badge.cancelled{background:#FCEBEB;color:#791F1F}
+.stats-cancelled-meta{font-size:10.5px;color:var(--muted);margin-top:3px}
+.stats-tbl tr.row-cancelled td{opacity:.6}
+.stats-tbl tr.row-cancelled .cell-strike{text-decoration:line-through}
 .stats-table-footer{padding:14px 24px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:13px;color:var(--muted)}
 .notice{display:flex;gap:12px;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.4;margin-bottom:12px;align-items:flex-start}
 .notice.warning{background:#FCE6DD;color:#7A2A14}
@@ -711,9 +725,10 @@ function App() {
     const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
     let fresh;
     try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch(e){throw new Error('Lecture impossible');}
+    const freshActive=fresh.filter(b=>!b.cancelled);
     const emailToUse = emailForBooking || profile.email || '';
     const candidate={id:uid(),name:profileFullName(profile),address:profileAddr(profile),email:emailToUse,date,startTime,endTime,createdAt:Date.now()};
-    if(fresh.some(b=>overlaps(b,candidate))) throw new Error('Ce créneau est déjà réservé.');
+    if(freshActive.some(b=>overlaps(b,candidate))) throw new Error('Ce créneau est déjà réservé.');
     const updated=[...fresh,candidate];
     try{await pantrySave(updated);}catch(e){throw new Error('Écriture refusée ('+e.message+')');}
     setBookings(updated);
@@ -744,7 +759,7 @@ function App() {
     try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch{showToast('Lecture impossible','error');return;}
     try{freshWl=await waitlistGet();}catch{freshWl=[];}
     const cancelled=fresh.find(b=>b.id===id);
-    const updated=fresh.filter(b=>b.id!==id);
+    const updated=fresh.map(b=>b.id===id?{...b,cancelled:true,cancelledAt:Date.now()}:b);
     try{await pantrySave(updated);}catch{showToast('Annulation impossible','error');return;}
     setBookings(updated);
     // Promouvoir le premier en liste d'attente
@@ -799,18 +814,20 @@ function App() {
     showToast("Retiré de la liste d'attente");
   }
 
+  const activeBookings = useMemo(()=>bookings.filter(b=>!b.cancelled), [bookings]);
+
   const days = useMemo(()=>{
     const out=[],base=startOfDay(new Date());
     for(let i=0;i<daysVisible;i++){
       const d=new Date(base);d.setDate(base.getDate()+i);
       const k=dateKey(d);
-      const dayB=bookings.filter(b=>b.date===k&&(k===dateKey(new Date())||!isPastBooking(b))).sort((a,b)=>a.startTime.localeCompare(b.startTime));
+      const dayB=activeBookings.filter(b=>b.date===k&&(k===dateKey(new Date())||!isPastBooking(b))).sort((a,b)=>a.startTime.localeCompare(b.startTime));
       out.push({date:d,key:k,bookings:dayB});
     }
     return out;
-  },[bookings,daysVisible]);
+  },[activeBookings,daysVisible]);
 
-  const doublons = useMemo(()=>isAdmin?detectDoublons(bookings):[],[bookings,isAdmin]);
+  const doublons = useMemo(()=>isAdmin?detectDoublons(activeBookings):[],[activeBookings,isAdmin]);
 
   if(!HAS_CONFIG) return html`<${ConfigMissing}/>`;
   if(loading) return html`<div class="loading-screen"><div class="spinner"></div></div>`;
@@ -834,7 +851,7 @@ function App() {
         onSaveContactCfg=${async(c)=>{await contactConfigSave(c);setContactCfg(c);showToast('Email de contact mis à jour');}}
         residents=${residents}
         waitlist=${waitlist}
-        bookings=${bookings}
+        bookings=${activeBookings}
         coordsProfiles=${coordsProfiles}
         onRefreshWaitlist=${async()=>{const w=await waitlistGet();setWaitlist(w);return w;}}
         onSaveResidents=${saveResidents}
@@ -842,18 +859,18 @@ function App() {
 		onUpdateProfile=${async(key,data)=>{const cur=coordsProfiles[key]||{};const updated={...cur,...data};await profileSet(key,updated);setCoordsProfiles(prev=>({...prev,[key]:updated}));}}
         onLogoutAdmin=${logoutAdmin}/>`
     :view==='residents' ? html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${false} onBack=${()=>setView('stats')}/>`
-    :view==='history'   ? html`<${HistoryView} bookings=${bookings} onBack=${()=>setView('stats')}/>`
-    :view==='stats'      ? html`<${StatsView} bookings=${bookings} period=${period} setPeriod=${setPeriod} doublons=${doublons}
+    :view==='history'   ? html`<${HistoryView} bookings=${activeBookings} onBack=${()=>setView('stats')}/>`
+    :view==='stats'      ? html`<${StatsView} bookings=${activeBookings} period=${period} setPeriod=${setPeriod} doublons=${doublons}
         onViewHistory=${()=>setView('history')}
         onViewResidents=${()=>setView('residents')}
         onViewNeighbor=${n=>setView({type:'neighbor',neighbor:n})}
         onViewWeekday=${d=>setView({type:'weekday',weekday:d})}
-        onExportCSV=${()=>exportCSV(bookings)}
+        onExportCSV=${()=>exportCSV(activeBookings)}
         onOpenStatsTable=${()=>setModal('stats-table')}
         onViewHousehold=${h=>setView({type:'household',household:h})}/>`
-    :view?.type==='neighbor' ? html`<${NeighborView} neighbor=${view.neighbor} bookings=${bookings} isAdmin=${isAdmin} onBack=${()=>setView('stats')}/>`
-    :view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${bookings} onBack=${()=>setView('stats')}/>`
-    :view?.type==='weekday'  ? html`<${WeekdayView} weekday=${view.weekday} period=${period} bookings=${bookings} onBack=${()=>setView('stats')}/>`
+    :view?.type==='neighbor' ? html`<${NeighborView} neighbor=${view.neighbor} bookings=${activeBookings} isAdmin=${isAdmin} onBack=${()=>setView('stats')}/>`
+    :view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${activeBookings} onBack=${()=>setView('stats')}/>`
+    :view?.type==='weekday'  ? html`<${WeekdayView} weekday=${view.weekday} period=${period} bookings=${activeBookings} onBack=${()=>setView('stats')}/>`
     : html`<${MainView} days=${days} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} annoncesCount=${annoncesCount}
         waitlist=${waitlist} meteo=${meteo}
         canCancel=${canCancel}
@@ -870,7 +887,7 @@ function App() {
     ${modal==='admin'          && html`<${AdminModal} onClose=${()=>setModal(null)} onSubmit=${tryAdmin}/>`}
   ${modal==='stats-table'    && html`<${StatsTableModal} bookings=${bookings} onClose=${()=>setModal(null)}/>`}
     ${modal==='edit-profile'   && html`<${ProfileEditModal} profile=${profile} onClose=${()=>setModal(null)} onSubmit=${saveProfile}/>`}
-    ${modal==='personal-stats' && html`<${PersonalStatsModal} profile=${profile} bookings=${bookings} onClose=${()=>setModal(null)} onLogout=${logout} onSaveEmail=${async(email,tel)=>{
+    ${modal==='personal-stats' && html`<${PersonalStatsModal} profile=${profile} bookings=${activeBookings} onClose=${()=>setModal(null)} onLogout=${logout} onSaveEmail=${async(email,tel)=>{
       const pUserId = makeUserId(profile);
       const currentP = await profileGet(pUserId);
       await profileSet(pUserId, {
@@ -888,7 +905,7 @@ function App() {
     }}/>`}
     ${modal==='reglement'      && html`<${ReglementModal} onClose=${()=>setModal(null)}/>`}
     ${modal?.type==='booking'  && html`<${BookingModal}
-      profile=${profile} existingBookings=${bookings.filter(b=>!isPastBooking(b))} prefill=${modal.prefill}
+      profile=${profile} existingBookings=${activeBookings.filter(b=>!isPastBooking(b))} prefill=${modal.prefill}
       onClose=${()=>setModal(null)}
       onConfirm=${async data=>{
         await createBooking(data);
@@ -1791,6 +1808,10 @@ function StatsTableModal({bookings,onClose}) {
   const [sortCol, setSortCol] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
   const [page,    setPage]    = useState(1);
+  const [addressFilter,  setAddressFilter]  = useState('');
+  const [showUpcoming,   setShowUpcoming]   = useState(true);
+  const [showPast,       setShowPast]       = useState(true);
+  const [showCancelled,  setShowCancelled]  = useState(false);
 
   const toggle = col => {
     if (sortCol===col) setSortDir(d=>d==='desc'?'asc':'desc');
@@ -1799,18 +1820,37 @@ function StatsTableModal({bookings,onClose}) {
   };
   const arrow = col => sortCol===col ? (sortDir==='desc'?'↓':'↑') : '';
 
-  // Reset page when period changes
+  // Reset page quand un filtre change
   const changePeriod = p => { setPeriod(p); setPage(1); };
+  const changeAddress = a => { setAddressFilter(a); setPage(1); };
+  const toggleStatus = setter => { setter(v=>!v); setPage(1); };
 
-  // Detect doublons
+  const addresses = useMemo(()=>{
+    const set=new Set();
+    for(const b of bookings) if(b.address) set.add(b.address);
+    return [...set].sort((a,b)=>a.localeCompare(b));
+  },[bookings]);
+
+  const statusOf = b => b.cancelled ? 'cancelled' : (isPastBooking(b) ? 'past' : 'upcoming');
+  const statusLabel = s => s==='cancelled' ? 'Annulée' : (s==='past' ? 'Passée' : 'À venir');
+
+  // Detect doublons (uniquement parmi les résas actives)
   const countByKey={};
-  for(const b of bookings){const k=`${b.date}|||${b.address||''}`;countByKey[k]=(countByKey[k]||0)+1;}
+  for(const b of bookings){
+    if(b.cancelled) continue;
+    const k=`${b.date}|||${b.address||''}`;countByKey[k]=(countByKey[k]||0)+1;
+  }
 
   const filtered=useMemo(()=>{
     let list=bookings;
     if(period>0){const since=new Date();since.setDate(since.getDate()-period);const sinceStr=dateKey(since);list=list.filter(b=>b.date>=sinceStr);}
-    return list.map(b=>({...b,doublon:countByKey[`${b.date}|||${b.address||''}`]>=2}));
-  },[bookings,period]);
+    if(addressFilter) list=list.filter(b=>b.address===addressFilter);
+    list=list.filter(b=>{
+      const s=statusOf(b);
+      return (s==='upcoming'&&showUpcoming)||(s==='past'&&showPast)||(s==='cancelled'&&showCancelled);
+    });
+    return list.map(b=>({...b,doublon:!b.cancelled&&countByKey[`${b.date}|||${b.address||''}`]>=2}));
+  },[bookings,period,addressFilter,showUpcoming,showPast,showCancelled]);
 
   const sorted=useMemo(()=>[...filtered].sort((a,b)=>{
     let va,vb;
@@ -1818,6 +1858,7 @@ function StatsTableModal({bookings,onClose}) {
     else if(sortCol==='name'){va=a.name||'';vb=b.name||'';}
     else if(sortCol==='address'){va=a.address||'';vb=b.address||'';}
     else if(sortCol==='start'){va=a.startTime;vb=b.startTime;}
+    else if(sortCol==='createdAt'){va=String(a.createdAt||0).padStart(20,'0');vb=String(b.createdAt||0).padStart(20,'0');}
     else{va='';vb='';}
     const cmp=va.localeCompare(vb);
     return sortDir==='desc'?-cmp:cmp;
@@ -1829,8 +1870,14 @@ function StatsTableModal({bookings,onClose}) {
   const start=(page-1)*PAGE_SIZE+1, end=Math.min(page*PAGE_SIZE,sorted.length);
 
   function dlCSV(){
-    const headers=['Nom','Adresse','Date','Heure début','Doublon'];
-    const rows=sorted.map(b=>[b.name||'',b.address||'',b.date,b.startTime,b.doublon?'Oui':'']);
+    const headers=['Nom','Adresse','Date','Heure début','Réservé le','Statut','Annulée le','Doublon'];
+    const rows=sorted.map(b=>[
+      b.name||'',b.address||'',b.date,b.startTime,
+      b.createdAt?new Date(b.createdAt).toLocaleDateString('fr-FR'):'',
+      statusLabel(statusOf(b)),
+      b.cancelled&&b.cancelledAt?new Date(b.cancelledAt).toLocaleDateString('fr-FR'):'',
+      b.doublon?'Oui':''
+    ]);
     const csv=[headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
     const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='stats-reservations.csv';a.click();
@@ -1849,27 +1896,53 @@ function StatsTableModal({bookings,onClose}) {
       <div class="stats-table-tabs">
         ${PERIODS.map(p=>html`<button class="stats-tab ${period===p.days?'active':''}" onClick=${()=>changePeriod(p.days)}>${p.label}</button>`)}
       </div>
+      <div class="stats-table-filters">
+        <div class="stats-filter-group">
+          <label class="field-label">Foyer</label>
+          <select class="stats-filter-select" value=${addressFilter} onChange=${e=>changeAddress(e.target.value)}>
+            <option value="">Tous les foyers</option>
+            ${addresses.map(a=>html`<option key=${a} value=${a}>${a}</option>`)}
+          </select>
+        </div>
+        <div class="stats-filter-group">
+          <label class="field-label">Statut</label>
+          <div class="stats-filter-checks">
+            <label class="stats-filter-check"><input type="checkbox" checked=${showUpcoming} onChange=${()=>toggleStatus(setShowUpcoming)}/>À venir</label>
+            <label class="stats-filter-check"><input type="checkbox" checked=${showPast} onChange=${()=>toggleStatus(setShowPast)}/>Passées</label>
+            <label class="stats-filter-check"><input type="checkbox" checked=${showCancelled} onChange=${()=>toggleStatus(setShowCancelled)}/>Annulées</label>
+          </div>
+        </div>
+      </div>
       <div class="stats-table-wrap">
         <table class="stats-tbl">
           <thead>
             <tr>
               <th class="${sortCol==='name'?'active':''}" onClick=${()=>toggle('name')}>Nom <span class="sort-arrow">${arrow('name')}</span></th>
               <th class="${sortCol==='address'?'active':''}" onClick=${()=>toggle('address')}>Adresse <span class="sort-arrow">${arrow('address')}</span></th>
-              <th class="${sortCol==='date'?'active':''}" onClick=${()=>toggle('date')}>Date <span class="sort-arrow">${arrow('date')}</span></th>
+              <th class="${sortCol==='date'?'active':''}" onClick=${()=>toggle('date')}>Date résa <span class="sort-arrow">${arrow('date')}</span></th>
               <th class="${sortCol==='start'?'active':''}" onClick=${()=>toggle('start')}>Heure début <span class="sort-arrow">${arrow('start')}</span></th>
+              <th class="${sortCol==='createdAt'?'active':''}" onClick=${()=>toggle('createdAt')}>Réservé le <span class="sort-arrow">${arrow('createdAt')}</span></th>
+              <th>Statut</th>
               <th>Doublon</th>
             </tr>
           </thead>
           <tbody>
             ${sorted.length===0
-              ? html`<tr><td colspan="5" style="text-align:center;color:var(--muted);font-style:italic;padding:24px">Aucune réservation sur cette période.</td></tr>`
-              : paginated.map(b=>html`<tr key=${b.id}>
-                  <td style="font-weight:600">${b.name||'—'}</td>
-                  <td style="color:var(--muted)">${b.address||'—'}</td>
-                  <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}</td>
-                  <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.startTime}</td>
+              ? html`<tr><td colspan="7" style="text-align:center;color:var(--muted);font-style:italic;padding:24px">Aucune réservation pour ces filtres.</td></tr>`
+              : paginated.map(b=>{
+                  const s=statusOf(b);
+                  return html`<tr key=${b.id} class=${s==='cancelled'?'row-cancelled':''}>
+                  <td class="cell-strike" style="font-weight:600">${b.name||'—'}</td>
+                  <td class="cell-strike" style="color:var(--muted)">${b.address||'—'}</td>
+                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}</td>
+                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.startTime}</td>
+                  <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums;color:var(--muted)">${b.createdAt?new Date(b.createdAt).toLocaleDateString('fr-FR'):'—'}</td>
+                  <td>
+                    <span class="status-badge ${s}">${statusLabel(s)}</span>
+                    ${s==='cancelled'&&b.cancelledAt?html`<div class="stats-cancelled-meta">le ${new Date(b.cancelledAt).toLocaleDateString('fr-FR')}</div>`:''}
+                  </td>
                   <td>${b.doublon?html`<span class="doublon-cell">⚠️ Oui</span>`:''}</td>
-                </tr>`)
+                </tr>`;})
             }
           </tbody>
         </table>
