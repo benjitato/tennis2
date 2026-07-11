@@ -215,7 +215,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .stats-filter-select{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:8px 10px;min-width:180px}
 .stats-filter-checks{display:flex;gap:12px;flex-wrap:wrap}
 .stats-filter-check{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--ink);font-weight:600;cursor:pointer}
-.stats-filter-check input{width:14px;height:14px;accent-color:var(--clay);cursor:pointer}
+.stats-filter-check input[type=checkbox]{-webkit-appearance:checkbox;appearance:auto;width:15px;height:15px;padding:0;margin:0;border:none;border-radius:4px;background:none;accent-color:var(--clay);cursor:pointer;flex-shrink:0}
 .status-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block}
 .status-badge.upcoming{background:var(--clay-soft);color:var(--clay-deep)}
 .status-badge.past{background:var(--strip);color:var(--muted)}
