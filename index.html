@@ -371,14 +371,21 @@ const isChallengeStale = (c, bookings) => {
 };
 /* Rôle de "profile" dans le défi c : 'from' (défieur), 'to' (défié) ou null (pas concerné).
    On matche d'abord par userId (fiable), puis par email en secours (utile si le userId du défié
-   n'a pas encore été rattaché, ou a changé depuis — l'email est plus stable que le slug d'identité). */
+   n'a pas encore été rattaché, ou a changé depuis — l'email est plus stable que le slug d'identité),
+   puis par nom+adresse en dernier recours (utile tant que le profil local du défié n'a pas encore
+   d'email connu — ProfileEntry ne demande pas l'email au premier login, donc le fallback email seul
+   peut échouer pour un nouvel utilisateur qui n'a pas encore ouvert le lien reçu par email). */
 function challengeMyRole(c, profile) {
   const myId = makeUserId(profile);
   const myEmail = (profile?.email||'').trim().toLowerCase();
+  const myName = normalizeStr(profileFullName(profile));
+  const myAddr = normalizeStr(profileAddr(profile));
   if (c.fromUserId && c.fromUserId===myId) return 'from';
   if (c.toUserId && c.toUserId===myId) return 'to';
   if (myEmail && (c.fromEmail||'').trim().toLowerCase()===myEmail) return 'from';
   if (myEmail && (c.toEmail||'').trim().toLowerCase()===myEmail) return 'to';
+  if (myName && myAddr && normalizeStr(c.fromName||'')===myName && normalizeStr(c.fromAddress||'')===myAddr) return 'from';
+  if (myName && myAddr && normalizeStr(c.toName||'')===myName && normalizeStr(c.toAddress||'')===myAddr) return 'to';
   return null;
 }
 const isChallengeParticipant = (c, profile) => challengeMyRole(c, profile)!==null;
@@ -1787,8 +1794,8 @@ function ChallengeCreateModal({profile,allProfiles,residents,bookings,onClose,on
           ${manualMode && html`<div onClick=${e=>e.stopPropagation()}>
             ${!selectedResident ? html`<div>
                 <input type="text" placeholder="Nom ou adresse" value=${residentSearch} onInput=${e=>setResidentSearch(e.target.value)} style="margin-bottom:8px"/>
-                <div style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
-                  ${filteredResidents.slice(0,30).map(r=>html`<button key=${r.id} type="button" onClick=${()=>setSelectedResident(r)} style="width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-family:inherit;cursor:pointer">
+                <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+                  ${filteredResidents.map(r=>html`<button key=${r.id} type="button" onClick=${()=>setSelectedResident(r)} style="width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-family:inherit;cursor:pointer">
                     <div style="font-weight:600;font-size:13px">${r.nom}</div>
                     <div style="font-size:11px;color:var(--muted)">${r.addressNumber} ${r.addressStreet}</div>
                   </button>`)}
