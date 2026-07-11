@@ -1392,6 +1392,7 @@ function App() {
       onAccept=${async slot=>{const r=await acceptChallengeSlot(modal.challenge,slot);if(r.ok)setModal(null);}}
       onDecline=${async()=>{await declineChallenge(modal.challenge);setModal(null);}}
       onCancelChallenge=${async()=>{await cancelChallenge(modal.challenge);setModal(null);}}
+      onCancelAccepted=${()=>{const b=activeBookings.find(x=>x.id===modal.challenge.bookingId);if(b)setModal({type:'cancel',booking:b});}}
       onPropose=${async slots=>{await proposeSlots(modal.challenge,slots);setModal(null);}}/>`}
 
     ${modal?.type==='waitlist-join' && html`<${ConfirmModal}
@@ -1866,7 +1867,7 @@ function ChallengeCreateModal({profile,allProfiles,residents,bookings,onClose,on
   </>`;
 }
 
-function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose,onCancelChallenge}) {
+function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose,onCancelChallenge,onCancelAccepted}) {
   const myRole = challengeMyRole(challenge, profile);
   const amFrom = myRole==='from';
   const other = challengeOtherParty(challenge, profile);
@@ -1895,9 +1896,12 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
       <button class="modal-close" onClick=${onClose}><${Icon} name="x"/></button>
     </div>
     <div class="modal-body">
-      ${challenge.status==='accepted' ? html`<div class="notice" style="background:#E3EBE4;color:var(--green)">
-          <${Icon} name="check" size=${16}/>
-          <div>Défi accepté ! ${challenge.acceptedSlot?formatSlot(challenge.acceptedSlot):''} — le court est réservé pour vous deux.</div>
+      ${challenge.status==='accepted' ? html`<div>
+          <div class="notice" style="background:#E3EBE4;color:var(--green)">
+            <${Icon} name="check" size=${16}/>
+            <div>Défi accepté ! ${challenge.acceptedSlot?formatSlot(challenge.acceptedSlot):''} — le court est réservé pour vous deux.</div>
+          </div>
+          ${myRole && html`<button type="button" onClick=${onCancelAccepted} style="display:block;width:100%;text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:12px 4px 4px">Annuler ce match</button>`}
         </div>`
       : challenge.status!=='pending' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
           <${Icon} name="alert" size=${16}/>
