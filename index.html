@@ -949,12 +949,77 @@ function App() {
 
   /* ── Défis ── */
   async function checkChallengeExpirations(list, bookingsList) {
-    const stale = (list||[]).filter(c=>isChallengeStale(c, bookingsList));
-    if (stale.length===0) { setChallenges(list); return; }
-    const staleIds = new Set(stale.map(c=>c.id));
-    const updated = list.map(c=>staleIds.has(c.id)?{...c,status:'expired'}:c);
+    const stillPending = (list||[]).filter(c=>c.status==='pending');
+    const toExpire = [], toConflictCancel = [];
+    for (const c of stillPending) {
+      const slots = latestProposal(c).slots||[];
+      if (slots.length===0) continue;
+      if (slots.every(isSlotPast)) { toExpire.push(c); continue; }
+      // Un créneau proposé vient d'être réservé ailleurs (avant validation du défi) : on annule le défi entier.
+      if (slots.some(s=>!isSlotPast(s) && slotTaken(s, bookingsList))) { toConflictCancel.push(c); }
+    }
+    if (toExpire.length===0 && toConflictCancel.length===0) { setChallenges(list); return; }
+    const expireIds = new Set(toExpire.map(c=>c.id));
+    const conflictIds = new Set(toConflictCancel.map(c=>c.id));
+    const updated = list.map(c=>{
+      if (expireIds.has(c.id)) return {...c, status:'expired'};
+      if (conflictIds.has(c.id)) return {...c, status:'cancelled', cancelledAt:Date.now(), cancelReason:'conflict'};
+      return c;
+    });
     try{ await challengesSave(updated); }catch{}
     setChallenges(updated);
+    toConflictCancel.forEach(c=>{
+      const mailHtml = `<p>Le créneau proposé pour votre défi (<strong>${escapeHtml(c.fromName)}</strong> vs <strong>${escapeHtml(c.toName)}</strong>) vient d'être réservé par quelqu'un d'autre. Le défi a été annulé automatiquement.</p><p>Vous pouvez relancer un défi avec de nouveaux créneaux depuis l'application.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`;
+      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi annulé — créneau indisponible', html:`<p>Bonjour ${escapeHtml(c.fromName)},</p>${mailHtml}`}).catch(()=>{});
+      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi annulé — créneau indisponible', html:`<p>Bonjour ${escapeHtml(c.toName)},</p>${mailHtml}`}).catch(()=>{});
+    });
+  }
+
+  async function cancelChallenge(challenge) {
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const current = fresh.find(c=>c.id===challenge.id) || challenge;
+    if (current.status!=='pending') { showToast("Ce défi n'est plus en attente.", 'error'); return; }
+    const updated = fresh.map(c=>c.id===challenge.id?{...c,status:'cancelled',cancelledAt:Date.now()}:c);
+    await challengesSave(updated);
+    setChallenges(updated);
+    const other = challengeOtherParty(current, profile);
+    if (other.email) {
+      sendEmail({
+        to: other.email,
+        subject: 'Défi annulé — Tennis Château Rouge',
+        html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a annulé son défi avant votre réponse.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+      }).catch(()=>{});
+    }
+    showToast('Défi annulé');
+  }
+
+  /* Complète automatiquement /profiles/{userId} (nom, adresse, email) pour la personne qui accepte un défi —
+     utile quand elle a été défiée via une invitation par email manuel et n'avait pas encore de profil complet. */
+  async function completeProfileFromChallenge(current) {
+    try{
+      const myId = makeUserId(profile);
+      const role = challengeMyRole(current, profile);
+      const myEmailFromChallenge = role==='to' ? current.toEmail : role==='from' ? current.fromEmail : '';
+      const emailToSave = profile.email || myEmailFromChallenge || '';
+      const existing = await profileGet(myId);
+      const needsUpdate = !existing?.prenom || (emailToSave && !existing?.email);
+      if (needsUpdate) {
+        await profileSet(myId, {
+          ...existing,
+          prenom: profile.prenom||'',
+          nom: profile.nom||'',
+          addressNumber: profile.addressNumber||'',
+          addressStreet: profile.addressStreet||'',
+          ...(emailToSave?{email:emailToSave}:{})
+        });
+      }
+      if (emailToSave && !profile.email) {
+        const updatedProfile = {...profile, email: emailToSave};
+        saveProfileLocal(updatedProfile);
+        setProfile(updatedProfile);
+      }
+    }catch{}
   }
 
   async function createChallenge({opponent, slots, manualName, manualEmail}) {
@@ -1041,6 +1106,7 @@ function App() {
     const updatedCh = fresh.map(c=>c.id===challenge.id?{...c,status:'accepted',respondedAt:Date.now(),bookingId:newBooking.id,acceptedSlot:slot}:c);
     await challengesSave(updatedCh);
     setChallenges(updatedCh);
+    completeProfileFromChallenge(current);
     const mailHtml = `<p><strong>${escapeHtml(current.fromName)}</strong> vs <strong>${escapeHtml(current.toName)}</strong></p><p><strong>${formatSlot(slot)}</strong></p><p>Le court est réservé automatiquement pour vous deux. Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`;
     if (current.fromEmail) sendEmail({to:current.fromEmail, subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.fromName)},</p>${mailHtml}`}).catch(()=>{});
     if (current.toEmail)   sendEmail({to:current.toEmail,   subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.toName)},</p>${mailHtml}`}).catch(()=>{});
@@ -1260,6 +1326,7 @@ function App() {
       onClose=${()=>setModal(null)}
       onAccept=${async slot=>{const r=await acceptChallengeSlot(modal.challenge,slot);if(r.ok)setModal(null);}}
       onDecline=${async()=>{await declineChallenge(modal.challenge);setModal(null);}}
+      onCancelChallenge=${async()=>{await cancelChallenge(modal.challenge);setModal(null);}}
       onPropose=${async slots=>{await proposeSlots(modal.challenge,slots);setModal(null);}}/>`}
 
     ${modal?.type==='waitlist-join' && html`<${ConfirmModal}
@@ -1700,7 +1767,7 @@ function ChallengeCreateModal({profile,allProfiles,bookings,onClose,onConfirm}) 
   </>`;
 }
 
-function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose}) {
+function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose,onCancelChallenge}) {
   const myRole = challengeMyRole(challenge, profile);
   const amFrom = myRole==='from';
   const other = challengeOtherParty(challenge, profile);
@@ -1711,6 +1778,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
   const [counterMode,setCounterMode]=useState(false);
   const [counterSlots,setCounterSlots]=useState([]);
   const [busy,setBusy]=useState(false);
+  const [cancelling,setCancelling]=useState(false);
 
   const takenNow = slot => bookings.some(b=>overlaps(b,slot));
   const availableSlots = (latest.slots||[]).filter(s=>!takenNow(s));
@@ -1718,6 +1786,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
 
   async function handleAccept(){ if(!effectiveSelected) return; setBusy(true); await onAccept(effectiveSelected); setBusy(false); }
   async function handlePropose(){ if(counterSlots.length===0) return; setBusy(true); await onPropose(counterSlots); setBusy(false); }
+  async function handleCancelChallenge(){ setCancelling(true); await onCancelChallenge(); setCancelling(false); }
 
   const statusText = {pending:'En attente', accepted:'Accepté', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
 
@@ -1769,6 +1838,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
         ${!counterMode && html`<button class="btn btn-secondary" onClick=${()=>setCounterMode(true)}>Proposer d'autres créneaux</button>`}
         ${!counterMode && html`<button type="button" onClick=${onDecline} style="text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:4px">Décliner le défi</button>`}
       </div>`}
+      ${challenge.status==='pending' && amFrom && !counterMode && html`<button type="button" disabled=${cancelling} onClick=${handleCancelChallenge} style="display:block;width:100%;text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:4px;margin-top:${myTurn?'2px':'14px'}">${cancelling?'Annulation...':'Annuler le défi'}</button>`}
     </div>
   </>`;
 }
