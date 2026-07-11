@@ -542,6 +542,15 @@ async function journalGet(){const d=await fbGet('adminConfig/journal');if(!d)ret
 async function journalSave(j){await fbPut('adminConfig/journal',j);}
 async function contactConfigGet(){const d=await fbGet('adminConfig/contact');return d||{email:DEFAULT_CONTACT_EMAIL};}
 async function contactConfigSave(c){await fbPut('adminConfig/contact',c);}
+/* Échecs d'envoi d'email (visibles depuis l'admin, onglet "Emails") */
+async function emailFailuresGet(){const d=await fbGet('emailFailures');if(!d)return[];return Array.isArray(d)?d:Object.values(d);}
+async function emailFailureLog(entry){
+  try{
+    const list=await emailFailuresGet();
+    list.push({...entry, at:Date.now()});
+    await fbPut('emailFailures', list.slice(-200)); // on garde les 200 dernières
+  }catch{}
+}
 /* ── Profils Firebase /profiles/{userId} ── */
 async function profileGet(userId){try{const d=await fbGet(`profiles/${userId}`);return d||{};}catch{return {};}}
 async function profileSet(userId,data){await fbPut(`profiles/${userId}`,data);}
@@ -567,15 +576,30 @@ async function profileTelSet(userId,tel){
 
 /* Récupérer et sauvegarder l'email d'un résident dans Firebase */
 
-/* ── Email via Cloudflare Worker ── */
+/* ── Email via Cloudflare Worker ──
+   keepalive:true garantit que la requête part même si l'onglet/l'appli se ferme juste après
+   l'appel (ex: confirmation de résa sur mobile) — sans ça le navigateur peut couper la requête
+   en vol après le préflight CORS, sans aucune erreur visible.
+   On vérifie aussi le code retour : le Worker répond toujours un JSON normal (200/400/403/429/502),
+   jamais une exception, donc un simple catch(fetch qui plante) ne suffit pas à détecter un rejet. */
 async function sendEmail({to, subject, html}) {
   try {
-    await fetch(WORKER_URL, {
+    const res = await fetch(WORKER_URL, {
       method: 'POST',
+      keepalive: true,
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({to, subject, html})
     });
-  } catch(e) { console.warn('Email non envoyé:', e); }
+    if (!res.ok) {
+      let reason = `HTTP ${res.status}`;
+      try { const j = await res.json(); if (j?.error) reason = j.error; } catch {}
+      console.warn('Email refusé par le Worker:', reason);
+      emailFailureLog({to, subject, reason});
+    }
+  } catch(e) {
+    console.warn('Email non envoyé:', e);
+    emailFailureLog({to, subject, reason: String(e?.message||e)});
+  }
 }
 
 /* ── Templates email ("carnet de match") ──
@@ -1443,6 +1467,7 @@ function App() {
         bookings=${activeBookings}
         coordsProfiles=${coordsProfiles}
         onRefreshWaitlist=${async()=>{const w=await waitlistGet();setWaitlist(w);return w;}}
+        onRefreshEmailFailures=${async()=>{try{return await emailFailuresGet();}catch{return [];}}}
         onSaveResidents=${saveResidents}
         onBack=${()=>setView('main')}
 		onUpdateProfile=${async(key,data)=>{const cur=coordsProfiles[key]||{};const updated={...cur,...data};await profileSet(key,updated);setCoordsProfiles(prev=>({...prev,[key]:updated}));}}
@@ -3235,10 +3260,12 @@ function ContactModal({contactCfg,onClose}) {
 /* ============================================================
    ADMIN PANEL VIEW
    ============================================================ */
-function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onBack,onLogoutAdmin,onUpdateProfile}) {
+function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,coordsProfiles,onSavePopup,onSaveJournal,onSaveContactCfg,onSaveResidents,onRefreshWaitlist,onRefreshEmailFailures,onBack,onLogoutAdmin,onUpdateProfile}) {
   const [tab, setTab] = useState('popup');
   const [localWaitlist, setLocalWaitlist] = useState(waitlist||[]);
+  const [emailFailures, setEmailFailures] = useState([]);
   useEffect(()=>{ if(tab==='waitlist') { onRefreshWaitlist().then(w=>setLocalWaitlist(w)); } },[tab]);
+  useEffect(()=>{ if(tab==='emails') { onRefreshEmailFailures().then(f=>setEmailFailures(f)); } },[tab]);
 
   return html`<div class="view-page">
     <div class="view-nav" style="justify-content:space-between">
@@ -3255,6 +3282,7 @@ function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,co
       <button class="stats-tab ${tab==='residents'?'active':''}" onClick=${()=>setTab('residents')}>Résidents</button>
       <button class="stats-tab ${tab==='waitlist'?'active':''}" onClick=${()=>setTab('waitlist')}>Liste d'attente</button>
       <button class="stats-tab ${tab==='coords'?'active':''}" onClick=${()=>setTab('coords')}>Coordonnées</button>
+      <button class="stats-tab ${tab==='emails'?'active':''}" onClick=${()=>setTab('emails')}>Emails</button>
     </div>
     <div style="padding:16px 20px">
       ${tab==='popup'    && html`<${AdminPopupTab}    popup=${popup}      onSave=${onSavePopup}      onAddToJournal=${(entry)=>{onSaveJournal([...journal,entry]);}} />`}
@@ -3263,6 +3291,7 @@ function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,co
       ${tab==='residents'&& html`<${ResidentsView} residents=${residents} onSave=${onSaveResidents} fromEntry=${false} onBack=${()=>setTab('popup')}/>`}
       ${tab==='waitlist' && html`<${AdminWaitlistTab} waitlist=${localWaitlist} bookings=${bookings}/>`}
       ${tab==='coords' && html`<${AdminCoordsTab} residents=${residents} profiles=${coordsProfiles} onUpdate=${onUpdateProfile}/>`}
+      ${tab==='emails' && html`<${AdminEmailFailuresTab} failures=${emailFailures} onRefresh=${()=>onRefreshEmailFailures().then(f=>setEmailFailures(f))}/>`}
     </div>
   </div>`;
 }
@@ -3434,6 +3463,37 @@ function AdminWaitlistTab({waitlist, bookings}) {
       <div style="font-size:13px;color:var(--muted);margin-top:2px">${w.address}</div>
       ${w.email&&html`<div style="font-size:12px;color:var(--clay-deep);margin-top:2px">${w.email}</div>`}
     </div>`)}
+  </div>`;
+}
+
+/* ---- Onglet Emails (échecs d'envoi) ---- */
+function AdminEmailFailuresTab({failures, onRefresh}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const sorted = [...(failures||[])].sort((a,b)=>(b.at||0)-(a.at||0));
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try { await onRefresh(); } finally { setRefreshing(false); }
+  }
+
+  return html`<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:13px;color:var(--muted)">${sorted.length} échec${sorted.length>1?'s':''} d'envoi enregistré${sorted.length>1?'s':''}</div>
+      <button onClick=${handleRefresh} disabled=${refreshing} class="btn btn-secondary" style="font-size:12px;padding:8px 14px;flex:none">
+        ${refreshing?'Actualisation...':'Actualiser'}
+      </button>
+    </div>
+    ${sorted.length===0
+      ? html`<p style="color:var(--muted);font-style:italic;font-size:14px">Aucun échec d'envoi enregistré pour l'instant.</p>`
+      : html`<div>${sorted.map((f,i)=>html`<div key=${i} style="border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">
+            ${f.at?new Date(f.at).toLocaleString('fr-FR',{dateStyle:'medium',timeStyle:'medium'}):'Date inconnue'}
+          </div>
+          <div style="font-weight:600;font-size:14px">${f.to||'destinataire inconnu'}</div>
+          ${f.subject&&html`<div style="font-size:13px;color:var(--muted);margin-top:2px">${f.subject}</div>`}
+          <div style="font-size:12px;color:#A2351A;margin-top:4px">${f.reason||'Raison inconnue'}</div>
+        </div>`)}</div>`
+    }
   </div>`;
 }
 
