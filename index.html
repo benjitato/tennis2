@@ -2020,7 +2020,7 @@ function ChallengeCreateModal({profile,allProfiles,residents,bookings,onClose,on
         </button>
       </div>` : html`<${SlotPicker} bookings=${bookings} selectedSlots=${slots} onChange=${setSlots}/>`}
 
-      <div class="modal-actions" style="margin-top:16px">
+      <div class="modal-actions" style="position:sticky;bottom:0;margin:16px -24px -22px;padding:12px 24px 22px;background:var(--paper);border-top:1px solid var(--line);border-radius:0 0 24px 24px;z-index:2">
         ${step==='slots' && html`<button class="btn btn-secondary" onClick=${()=>setStep('opponent')}>Retour</button>`}
         <button class="btn btn-primary" disabled=${step==='opponent'?!canContinue:(slots.length===0||sending)}
           onClick=${()=>step==='opponent'?setStep('slots'):handleConfirm()}>
