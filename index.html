@@ -359,7 +359,7 @@ const escapeHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 /* ============================================================
    DÉFIS — logique métier
    ============================================================ */
-const latestProposal = c => (c.proposals||[])[c.proposals.length-1] || {by:'from',slots:[]};
+const latestProposal = c => { const p = (c&&c.proposals) || []; return p[p.length-1] || {by:'from',slots:[]}; };
 const proposalTurn = c => latestProposal(c).by==='from' ? 'to' : 'from'; // à qui de répondre
 const isSlotPast = slot => new Date(`${slot.date}T${slot.startTime}:00`) < new Date();
 const slotTaken = (slot, bookings) => (bookings||[]).some(b=>!b.cancelled && overlaps(b,{date:slot.date,startTime:slot.startTime,endTime:slot.endTime}));
@@ -983,11 +983,15 @@ function App() {
     const stillPending = (list||[]).filter(c=>c.status==='pending');
     const toExpire = [], toConflictCancel = [];
     for (const c of stillPending) {
-      const slots = latestProposal(c).slots||[];
-      if (slots.length===0) continue;
-      if (slots.every(isSlotPast)) { toExpire.push(c); continue; }
-      // Un créneau proposé vient d'être réservé ailleurs (avant validation du défi) : on annule le défi entier.
-      if (slots.some(s=>!isSlotPast(s) && slotTaken(s, bookingsList))) { toConflictCancel.push(c); }
+      // Un défi malformé (ex : ancien enregistrement de test sans "proposals") ne doit pas
+      // interrompre la vérification des autres défis de la liste.
+      try{
+        const slots = latestProposal(c).slots||[];
+        if (slots.length===0) continue;
+        if (slots.every(isSlotPast)) { toExpire.push(c); continue; }
+        // Un créneau proposé vient d'être réservé ailleurs (avant validation du défi) : on annule le défi entier.
+        if (slots.some(s=>!isSlotPast(s) && slotTaken(s, bookingsList))) { toConflictCancel.push(c); }
+      }catch{}
     }
     if (toExpire.length===0 && toConflictCancel.length===0) { setChallenges(list); return; }
     const expireIds = new Set(toExpire.map(c=>c.id));
@@ -1902,11 +1906,11 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
         </div>`
       : counterMode ? html`<div><${SlotPicker} bookings=${bookings} selectedSlots=${counterSlots} onChange=${setCounterSlots}/></div>`
       : html`<div>
-          ${(challenge.proposals||[]).map((p,i)=>{
+          ${(challenge.proposals||[]).map((p,i,arr)=>{
             const mine = (p.by==='from')===amFrom;
             return html`<div key=${i} class="defi-bubble ${mine?'mine':'theirs'}">
               <div class="defi-bubble-label">${mine?'VOUS PROPOSEZ':`${(other.name||'').toUpperCase()} PROPOSE`}</div>
-              ${(p.slots||[]).map((s,j)=>html`<div key=${j} style=${`font-size:13px;font-weight:600;color:${mine?'var(--clay-deep)':'var(--ink)'}`}>${formatSlot(s)}${i===challenge.proposals.length-1&&takenNow(s)?' · pris entre-temps':''}</div>`)}
+              ${(p.slots||[]).map((s,j)=>html`<div key=${j} style=${`font-size:13px;font-weight:600;color:${mine?'var(--clay-deep)':'var(--ink)'}`}>${formatSlot(s)}${i===arr.length-1&&takenNow(s)?' · pris entre-temps':''}</div>`)}
             </div>`;
           })}
           ${myTurn ? html`<div style="margin-top:8px">
