@@ -805,19 +805,34 @@ function App() {
   },[modal]);
 
   // Résoudre le lien de défi ouvert depuis un email (?challenge=id&action=...)
+  // On ne se fie pas uniquement à l'état local `challenges` (qui peut ne pas encore être à jour
+  // juste après le chargement initial) : si le défi n'y est pas trouvé, on relit /challenges
+  // directement avant d'abandonner, pour éviter que le lien n'atterrisse "nulle part".
   useEffect(()=>{
     if(!challengeDeepLink || !profile || loading) return;
-    const c = challenges.find(x=>x.id===challengeDeepLink.id);
-    if(c){
-      setView('challenges');
-      openChallenge(c);
-    }
-    setChallengeDeepLink(null);
-    try{
-      const url=new URL(window.location.href);
-      url.searchParams.delete('challenge'); url.searchParams.delete('action');
-      window.history.replaceState({},'',url.toString());
-    }catch{}
+    (async()=>{
+      let list = challenges;
+      let c = list.find(x=>x.id===challengeDeepLink.id);
+      if(!c){
+        try{
+          list = await challengesGet();
+          if(list && list.length) setChallenges(list);
+          c = list.find(x=>x.id===challengeDeepLink.id);
+        }catch{}
+      }
+      if(c){
+        setView('challenges');
+        openChallenge(c);
+      } else {
+        showToast("Ce défi est introuvable ou a expiré.", 'error');
+      }
+      setChallengeDeepLink(null);
+      try{
+        const url=new URL(window.location.href);
+        url.searchParams.delete('challenge'); url.searchParams.delete('action');
+        window.history.replaceState({},'',url.toString());
+      }catch{}
+    })();
   },[challengeDeepLink, profile, loading, challenges]);
 
   const showToast=(msg,kind='success')=>{setToast({msg,kind});setTimeout(()=>setToast(null),2800);};
@@ -1237,6 +1252,22 @@ function App() {
     }).length;
   },[challenges,profile]);
 
+  // Défis pending où c'est à l'AUTRE partie de répondre (ex : le défieur juste après l'envoi)
+  const challengesWaitingCount = useMemo(()=>{
+    if(!profile) return 0;
+    return challenges.filter(c=>{
+      if(c.status!=='pending') return false;
+      const role = challengeMyRole(c, profile);
+      return role && proposalTurn(c)!==role;
+    }).length;
+  },[challenges,profile]);
+
+  // Défis acceptés (match programmé) auxquels je participe
+  const challengesScheduledCount = useMemo(()=>{
+    if(!profile) return 0;
+    return challenges.filter(c=>c.status==='accepted' && challengeMyRole(c,profile)!==null).length;
+  },[challenges,profile]);
+
   if(!HAS_CONFIG) return html`<${ConfigMissing}/>`;
   if(loading) return html`<div class="loading-screen"><div class="spinner"></div></div>`;
   if(!profile && entryAdmin) return html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${true} onBack=${()=>setEntryAdmin(false)}/>`;
@@ -1301,7 +1332,9 @@ function App() {
         onOpenContact=${()=>setModal('contact')}
         onMoreDays=${()=>setDaysVisible(v=>v+7)}
         onOpenChallenges=${()=>setView('challenges')}
-        challengesPendingCount=${challengesPendingCount}/>`}
+        challengesPendingCount=${challengesPendingCount}
+        challengesWaitingCount=${challengesWaitingCount}
+        challengesScheduledCount=${challengesScheduledCount}/>`}
 
     ${modal==='admin'          && html`<${AdminModal} onClose=${()=>setModal(null)} onSubmit=${tryAdmin}/>`}
   ${modal==='stats-table'    && html`<${StatsTableModal} bookings=${bookings} onClose=${()=>setModal(null)}/>`}
@@ -1423,7 +1456,7 @@ function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggl
 /* ============================================================
    MAIN VIEW
    ============================================================ */
-function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays,onOpenChallenges,challengesPendingCount}) {
+function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays,onOpenChallenges,challengesPendingCount,challengesWaitingCount,challengesScheduledCount}) {
   const today=new Date();
   return html`<div>
     <section class="hero">
@@ -1442,9 +1475,11 @@ function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,ca
           <${Icon} name="star" size=${16}/> Trouver un partenaire de jeu
           ${annoncesCount > 0 && html`<span style="margin-left:8px;background:var(--green);color:var(--paper);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${annoncesCount} joueur${annoncesCount > 1 ? 's' : ''} disponible${annoncesCount > 1 ? 's' : ''}</span>`}
         </a>
-        <button class="hero-defi" onClick=${onOpenChallenges}>
+        <button class="hero-defi" onClick=${onOpenChallenges} style="flex-wrap:wrap;row-gap:6px">
           <${Icon} name="swords" size=${16}/> Défier un voisin
           ${challengesPendingCount > 0 && html`<span style="margin-left:4px;background:var(--clay);color:var(--paper);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${challengesPendingCount} défi${challengesPendingCount > 1 ? 's' : ''} à répondre</span>`}
+          ${challengesPendingCount===0 && challengesWaitingCount > 0 && html`<span style="margin-left:4px;background:var(--strip);color:var(--muted);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${challengesWaitingCount} défi${challengesWaitingCount > 1 ? 's' : ''} en attente de validation</span>`}
+          ${challengesScheduledCount > 0 && html`<span style="margin-left:4px;background:var(--green);color:var(--paper);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${challengesScheduledCount} défi${challengesScheduledCount > 1 ? 's' : ''} programmé${challengesScheduledCount > 1 ? 's' : ''}</span>`}
         </button>
       </div>
       <div class="court-line" style="width:100%;margin-top:22px"></div>
