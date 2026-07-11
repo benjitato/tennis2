@@ -227,6 +227,32 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .notice{display:flex;gap:12px;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.4;margin-bottom:12px;align-items:flex-start}
 .notice.warning{background:#FCE6DD;color:#7A2A14}
 .waitlist-btn{font-size:10px;background:var(--clay-soft);color:var(--clay-deep);padding:3px 8px;border-radius:999px;font-weight:600;font-family:inherit;border:none;cursor:pointer;white-space:nowrap}
+/* Défis */
+.hero-defi{width:100%;position:relative;border:2px dashed var(--clay);background:rgba(184,74,44,.06);color:var(--clay);padding:11px;border-radius:16px;font-weight:600;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box}
+.defi-header-btn{position:relative;width:32px;height:32px;border-radius:50%;background:var(--clay-soft);color:var(--clay-deep);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.defi-badge-dot{position:absolute;top:-3px;right:-3px;background:var(--clay);color:var(--paper);font-size:9px;font-weight:700;min-width:15px;height:15px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 2px}
+.defi-avatar{width:34px;height:34px;border-radius:50%;background:var(--clay-soft);color:var(--clay-deep);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0}
+.defi-avatar.muted{background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.defi-row{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;background:var(--bg);margin-bottom:8px;text-align:left;width:100%}
+.defi-status{font-size:10px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap;flex-shrink:0}
+.defi-status.pending{background:var(--clay-soft);color:var(--clay-deep)}
+.defi-status.accepted{background:#E3EBE4;color:var(--green)}
+.defi-status.declined,.defi-status.expired,.defi-status.cancelled{background:var(--strip);color:var(--muted)}
+.defi-slot{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:14px;border:1px solid var(--line);margin-bottom:8px;width:100%;text-align:left;background:var(--paper)}
+.defi-slot.selected{border:2px solid var(--clay);background:rgba(184,74,44,.06)}
+.defi-slot.taken{opacity:.5}
+.defi-slot-radio{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.defi-slot.selected .defi-slot-radio{background:var(--clay);border-color:var(--clay)}
+.defi-chip{background:var(--clay);color:var(--paper);font-size:13px;font-weight:600;padding:8px 12px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;width:100%}
+.defi-chip.off{background:var(--bg);border:1px solid var(--line);color:var(--ink)}
+.defi-chip.taken{opacity:.45;text-decoration:line-through;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.defi-pill{background:var(--clay-soft);color:var(--clay-deep);font-size:12px;font-weight:600;padding:6px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:6px}
+.defi-bubble{border-radius:16px;padding:12px 14px;max-width:88%;margin-bottom:8px}
+.defi-bubble.mine{background:var(--clay-soft);margin-left:auto;border-radius:16px 16px 4px 16px}
+.defi-bubble.theirs{background:var(--bg);border-radius:16px 16px 16px 4px}
+.defi-bubble-label{font-size:11px;font-weight:600;margin-bottom:4px;color:var(--clay-deep)}
+.defi-bubble.theirs .defi-bubble-label{color:var(--muted)}
+.defi-vs-badge{font-size:10px;background:var(--clay-soft);color:var(--clay-deep);padding:2px 7px;border-radius:999px;font-weight:700;display:inline-flex;align-items:center;gap:3px}
 /* Residents table */
 .residents-table{width:100%;border-collapse:collapse;font-size:14px}
 .residents-table th{background:var(--bg);padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.13em;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -253,6 +279,7 @@ const html = htm.bind(h);
 const HAS_CONFIG = true;
 const FB_URL     = 'https://jardinduchateau-test-default-rtdb.europe-west1.firebasedatabase.app';
 const WORKER_URL = 'https://tennis-email.b-fitoussi.workers.dev';
+const APP_URL    = window.location.origin + window.location.pathname; // pour les liens dans les emails de défi
 // Coordonnées Marcq-en-Baroeul
 const METEO_LAT  = 50.672;
 const METEO_LON  = 3.098;
@@ -327,6 +354,42 @@ const profileFullName = p => p?.prenom && p?.nom ? `${p.prenom} ${p.nom}` : (p?.
 const normalizeStr = s => s ? s.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g,'') : '';
 const sameResident = (b, profile) => normalizeStr(b.name||'')===normalizeStr(profileFullName(profile)) && normalizeStr(b.address||'')===normalizeStr(profileAddr(profile));
 const escapeHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ============================================================
+   DÉFIS — logique métier
+   ============================================================ */
+const latestProposal = c => (c.proposals||[])[c.proposals.length-1] || {by:'from',slots:[]};
+const proposalTurn = c => latestProposal(c).by==='from' ? 'to' : 'from'; // à qui de répondre
+const isSlotPast = slot => new Date(`${slot.date}T${slot.startTime}:00`) < new Date();
+const slotTaken = (slot, bookings) => (bookings||[]).some(b=>!b.cancelled && overlaps(b,{date:slot.date,startTime:slot.startTime,endTime:slot.endTime}));
+const isChallengeStale = (c, bookings) => {
+  if (c.status!=='pending') return false;
+  const slots = latestProposal(c).slots||[];
+  if (slots.length===0) return false;
+  return slots.every(isSlotPast) || slots.every(s=>slotTaken(s,bookings));
+};
+const challengeParticipantIds = c => [c.fromUserId, c.toUserId].filter(Boolean);
+const isChallengeParticipant = (c, profile) => challengeParticipantIds(c).includes(makeUserId(profile));
+const bookingIsChallengeParticipant = (b, profile) => !!b.challengeId && [b.defiFromUserId,b.defiToUserId].filter(Boolean).includes(makeUserId(profile));
+const formatSlot = slot => `${longDate(new Date(slot.date+'T00:00:00'))} · ${slot.startTime}-${slot.endTime}`;
+const challengeOtherParty = (c, profile) => {
+  const myId = makeUserId(profile);
+  return c.fromUserId===myId
+    ? {name:c.toName, address:c.toAddress, email:c.toEmail, userId:c.toUserId}
+    : {name:c.fromName, address:c.fromAddress, email:c.fromEmail, userId:c.fromUserId};
+};
+/* Voisins "joignables" : ceux qui ont renseigné un email dans leur profil, hors soi-même */
+function getReachableNeighbors(profiles, myProfile) {
+  const myId = makeUserId(myProfile);
+  return Object.entries(profiles||{}).map(([key,p])=>{
+    let prenom=p.prenom||'', nom=p.nom||'', addressNumber=p.addressNumber||'', addressStreet=p.addressStreet||'';
+    if (!prenom && !nom) {
+      const parts=key.split('|');
+      if(parts.length>=4){prenom=parts[0].replace(/_/g,' ');nom=parts[1].replace(/_/g,' ');addressNumber=parts[2];addressStreet=parts[3].replace(/_/g,' ');}
+    }
+    return {userId:key, prenom, nom, addressNumber, addressStreet, email:p.email||'', name:`${prenom} ${nom}`.trim(), address:`${addressNumber} ${addressStreet}`.trim()};
+  }).filter(r=>r.email && r.userId!==myId).sort((a,b)=>a.nom.localeCompare(b.nom)||a.prenom.localeCompare(b.prenom));
+}
 /* Vérification du code admin côté serveur (Worker), le secret n'est jamais présent dans ce fichier */
 async function verifyAdminCode(code) {
   try {
@@ -446,6 +509,8 @@ async function residentsGet(){const d=await fbGet('residents');if(!d)return{resi
 async function residentsSave(residents){await fbPut('residents',residents);}
 async function waitlistGet(){const d=await fbGet('waitlist');if(!d)return[];return Array.isArray(d)?d:Object.values(d);}
 async function waitlistSave(list){await fbPut('waitlist',list);}
+async function challengesGet(){const d=await fbGet('challenges');if(!d)return[];return Array.isArray(d)?d:Object.values(d);}
+async function challengesSave(list){await fbPut('challenges',list);}
 async function popupGet(){const d=await fbGet('adminConfig/popup');return d||{active:false,title:'',body:'',days:7,version:0};}
 async function popupSave(p){await fbPut('adminConfig/popup',p);}
 async function journalGet(){const d=await fbGet('adminConfig/journal');if(!d)return[];return Array.isArray(d)?d:Object.values(d);}
@@ -589,6 +654,10 @@ function Icon({name,size=20}) {
     clock:   html`<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
     star:    html`<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
     table:   html`<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/>`,
+    swords:  html`<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><polyline points="16 16 20 20 22 20 22 18 18 14"/><polyline points="9.5 6.5 12.5 3.5 15.5 3.5 15.5 6.5 12.5 9.5"/><line x1="5" y1="14" x2="9" y2="18"/><line x1="4" y1="20" x2="8" y2="20"/><line x1="6" y1="18" x2="6" y2="22"/>`,
+    mail:    html`<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>`,
+    search:  html`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+    lock:    html`<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
   };
   return html`<svg class="icon" style=${`width:${size}px;height:${size}px`} viewBox="0 0 24 24">${paths[name]||null}</svg>`;
 }
@@ -626,6 +695,16 @@ function App() {
   const [daysVisible,   setDaysVisible]   = useState(7);
   const [toast,      setToast]      = useState(null);
   const [annoncesCount, setAnnoncesCount] = useState(0);
+  const [challenges, setChallenges] = useState([]);
+  const [allProfiles, setAllProfiles] = useState({});
+  const [challengeDeepLink, setChallengeDeepLink] = useState(()=>{
+    try{
+      const params = new URLSearchParams(window.location.search);
+      const cid = params.get('challenge');
+      if(!cid) return null;
+      return {id:cid, action: params.get('action')||'view'};
+    }catch{return null;}
+  });
 
   // Vérifier popup quand profile et popup sont chargés
   useEffect(()=>{
@@ -651,11 +730,13 @@ function App() {
     if(!HAS_CONFIG){setLoading(false);return;}
     (async()=>{
       try{
-        const [bd,rd,wl,mt,pp,jj,cc,anRaw]=await Promise.all([
+        const [bd,rd,wl,mt,pp,jj,cc,anRaw,ch,pr]=await Promise.all([
           pantryGet(),residentsGet(),waitlistGet(),fetchMeteo(),
-          popupGet(),journalGet(),contactConfigGet(),fbGet('annonces')
+          popupGet(),journalGet(),contactConfigGet(),fbGet('annonces'),
+          challengesGet(),fbGet('profiles')
         ]);
-        setBookings((bd.bookings||[]).filter(Boolean));
+        const bookingsArr=(bd.bookings||[]).filter(Boolean);
+        setBookings(bookingsArr);
         setResidents(rd.residents);
         setWaitlist(wl);
         if(mt) setMeteo(mt);
@@ -663,6 +744,8 @@ function App() {
         setJournal(jj);
         setContactCfg(cc);
         if(anRaw){const arr=(Array.isArray(anRaw)?anRaw:Object.values(anRaw)).filter(Boolean).filter(a=>a.expiresAt>Date.now());setAnnoncesCount(arr.length);}
+        setAllProfiles(pr||{});
+        checkChallengeExpirations(ch, bookingsArr).catch(()=>{});
       }catch{}finally{setLoading(false);}
     })();
   },[]);
@@ -673,11 +756,48 @@ function App() {
       if(document.hidden) return;
       try{const d=await pantryGet();setBookings((d.bookings||[]).filter(Boolean));}catch{}
       try{const w=await waitlistGet();setWaitlist(w);}catch{}
+      try{const ch=await challengesGet();const bd=((await pantryGet()).bookings||[]).filter(Boolean);await checkChallengeExpirations(ch, bd);}catch{}
     };
     const id=setInterval(tick,POLL_MS);
     document.addEventListener('visibilitychange',tick);
     return()=>{clearInterval(id);document.removeEventListener('visibilitychange',tick);};
   },[profile]);
+
+  // Rafraîchir la liste des voisins joignables à l'ouverture du formulaire de défi
+  useEffect(()=>{
+    if(modal==='challenge-create'||modal?.type==='challenge-create'){
+      fbGet('profiles').then(d=>setAllProfiles(d||{})).catch(()=>{});
+    }
+  },[modal]);
+
+  // Résoudre le lien de défi ouvert depuis un email (?challenge=id&action=...)
+  useEffect(()=>{
+    if(!challengeDeepLink || !profile || loading) return;
+    const c = challenges.find(x=>x.id===challengeDeepLink.id);
+    if(c){
+      (async()=>{
+        let target=c;
+        if(!c.toUserId){
+          const myId=makeUserId(profile);
+          try{
+            const fresh = await challengesGet();
+            const updated = fresh.map(x=>x.id===c.id?{...x,toUserId:myId,toAddress:profileAddr(profile)}:x);
+            await challengesSave(updated);
+            setChallenges(updated);
+            target = updated.find(x=>x.id===c.id) || c;
+          }catch{}
+        }
+        setView('challenges');
+        setModal({type:'challenge-detail', challenge:target});
+      })();
+    }
+    setChallengeDeepLink(null);
+    try{
+      const url=new URL(window.location.href);
+      url.searchParams.delete('challenge'); url.searchParams.delete('action');
+      window.history.replaceState({},'',url.toString());
+    }catch{}
+  },[challengeDeepLink, profile, loading, challenges]);
 
   const showToast=(msg,kind='success')=>{setToast({msg,kind});setTimeout(()=>setToast(null),2800);};
   const saveProfile=async(p)=>{
@@ -719,7 +839,7 @@ function App() {
     showToast('Mode administrateur activé');return true;
   };
   const logoutAdmin=()=>{saveAdminFlag(false);setIsAdmin(false);setView('main');showToast('Mode admin désactivé');};
-  const canCancel=b=>isAdmin||sameResident(b,profile);
+  const canCancel=b=>isAdmin||sameResident(b,profile)||bookingIsChallengeParticipant(b,profile);
 
   async function createBooking({date,startTime,emailForBooking}) {
     const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
@@ -814,6 +934,162 @@ function App() {
     showToast("Retiré de la liste d'attente");
   }
 
+  /* ── Défis ── */
+  async function checkChallengeExpirations(list, bookingsList) {
+    const stale = (list||[]).filter(c=>isChallengeStale(c, bookingsList));
+    if (stale.length===0) { setChallenges(list); return; }
+    const staleIds = new Set(stale.map(c=>c.id));
+    const updated = list.map(c=>staleIds.has(c.id)?{...c,status:'expired'}:c);
+    try{ await challengesSave(updated); }catch{}
+    setChallenges(updated);
+  }
+
+  async function createChallenge({opponent, slots, manualName, manualEmail}) {
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const entry = {
+      id: uid(),
+      fromUserId: makeUserId(profile), fromName: profileFullName(profile), fromAddress: profileAddr(profile), fromEmail: profile.email||'',
+      toUserId: opponent?.userId || null,
+      toName: opponent ? opponent.name : (manualName||'').trim(),
+      toAddress: opponent ? opponent.address : '',
+      toEmail: opponent ? opponent.email : (manualEmail||'').trim(),
+      proposals: [{by:'from', slots, createdAt:Date.now()}],
+      status: 'pending', bookingId: null, createdAt: Date.now()
+    };
+    const updated = [...fresh, entry];
+    await challengesSave(updated);
+    setChallenges(updated);
+    if (entry.toEmail) {
+      const list_ = slots.map(formatSlot).join('<br/>');
+      const viewUrl = `${APP_URL}?challenge=${entry.id}&action=view`;
+      sendEmail({
+        to: entry.toEmail,
+        subject: `🎾 ${profileFullName(profile)} vous défie au tennis !`,
+        html: `<p>Bonjour ${escapeHtml(entry.toName)},</p>
+               <p><strong>${escapeHtml(profileFullName(profile))}</strong> vous défie pour un match. ${slots.length>1?'Créneaux proposés':'Créneau proposé'} :</p>
+               <p>${list_}</p>
+               <p>Choisissez le créneau qui vous convient, ou proposez-en d'autres directement dans l'application.</p>
+               <div style="margin:16px 0"><a href="${viewUrl}" style="display:inline-block;background:#2D4A37;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">Voir les créneaux proposés</a></div>
+               <p style="font-size:13px;color:#888">Vous pouvez aussi répondre directement dans l'application, rubrique "Défis".</p>
+               <p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+      }).catch(()=>{});
+    }
+    showToast('Défi envoyé !');
+    return entry;
+  }
+
+  async function proposeSlots(challenge, slots) {
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const current = fresh.find(c=>c.id===challenge.id) || challenge;
+    const by = current.fromUserId===makeUserId(profile) ? 'from' : 'to';
+    const updated = fresh.map(c=>c.id===challenge.id?{...c, proposals:[...c.proposals,{by,slots,createdAt:Date.now()}], status:'pending'}:c);
+    await challengesSave(updated);
+    setChallenges(updated);
+    const other = challengeOtherParty(current, profile);
+    if (other.email) {
+      const list_ = slots.map(formatSlot).join('<br/>');
+      const viewUrl = `${APP_URL}?challenge=${current.id}&action=view`;
+      sendEmail({
+        to: other.email,
+        subject: `${profileFullName(profile)} propose ${slots.length>1?"d'autres créneaux":'un autre créneau'} pour votre défi`,
+        html: `<p>Bonjour ${escapeHtml(other.name)},</p>
+               <p>Aucun des créneaux précédents ne convenait. <strong>${escapeHtml(profileFullName(profile))}</strong> propose :</p>
+               <p>${list_}</p>
+               <div style="margin:16px 0"><a href="${viewUrl}" style="display:inline-block;background:#2D4A37;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">Voir la proposition</a></div>
+               <p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+      }).catch(()=>{});
+    }
+    showToast('Nouveaux créneaux proposés');
+  }
+
+  async function acceptChallengeSlot(challenge, slot) {
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const current = fresh.find(c=>c.id===challenge.id) || challenge;
+    if (current.status!=='pending') { showToast("Ce défi n'est plus en attente.", 'error'); return {ok:false}; }
+    let freshBookings;
+    try{ freshBookings = ((await pantryGet()).bookings||[]).filter(Boolean); }catch{ showToast('Lecture impossible','error'); return {ok:false}; }
+    const candidate = {date:slot.date, startTime:slot.startTime, endTime:slot.endTime};
+    if (freshBookings.some(b=>!b.cancelled && overlaps(b,candidate))) {
+      showToast("Ce créneau vient d'être réservé par quelqu'un d'autre. Choisissez-en un autre ou proposez-en un nouveau.", 'error');
+      return {ok:false, reason:'conflict'};
+    }
+    const newBooking = {
+      id: uid(), name: current.fromName, address: current.fromAddress, email: current.fromEmail,
+      date: slot.date, startTime: slot.startTime, endTime: slot.endTime, createdAt: Date.now(),
+      challengeId: current.id, opponentName: current.toName,
+      defiFromUserId: current.fromUserId, defiToUserId: current.toUserId
+    };
+    const updatedBookings = [...freshBookings, newBooking];
+    try{ await pantrySave(updatedBookings); }catch{ showToast('Écriture impossible','error'); return {ok:false}; }
+    setBookings(updatedBookings);
+    const updatedCh = fresh.map(c=>c.id===challenge.id?{...c,status:'accepted',respondedAt:Date.now(),bookingId:newBooking.id,acceptedSlot:slot}:c);
+    await challengesSave(updatedCh);
+    setChallenges(updatedCh);
+    const mailHtml = `<p><strong>${escapeHtml(current.fromName)}</strong> vs <strong>${escapeHtml(current.toName)}</strong></p><p><strong>${formatSlot(slot)}</strong></p><p>Le court est réservé automatiquement pour vous deux. Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`;
+    if (current.fromEmail) sendEmail({to:current.fromEmail, subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.fromName)},</p>${mailHtml}`}).catch(()=>{});
+    if (current.toEmail)   sendEmail({to:current.toEmail,   subject:'Défi accepté — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(current.toName)},</p>${mailHtml}`}).catch(()=>{});
+    showToast('Défi accepté, réservation confirmée !');
+    return {ok:true};
+  }
+
+  async function declineChallenge(challenge) {
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const current = fresh.find(c=>c.id===challenge.id) || challenge;
+    const updated = fresh.map(c=>c.id===challenge.id?{...c,status:'declined',respondedAt:Date.now()}:c);
+    await challengesSave(updated);
+    setChallenges(updated);
+    const other = challengeOtherParty(current, profile);
+    if (other.email) {
+      sendEmail({
+        to: other.email,
+        subject: 'Défi refusé — Tennis Château Rouge',
+        html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a décliné votre défi.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+      }).catch(()=>{});
+    }
+    showToast('Défi décliné');
+  }
+
+  async function cancelChallengeBooking(booking) {
+    let fresh, freshWl;
+    try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch{showToast('Lecture impossible','error');return;}
+    try{freshWl=await waitlistGet();}catch{freshWl=[];}
+    const updated=fresh.map(b=>b.id===booking.id?{...b,cancelled:true,cancelledAt:Date.now()}:b);
+    try{await pantrySave(updated);}catch{showToast('Annulation impossible','error');return;}
+    setBookings(updated);
+    const waiter=freshWl.find(w=>w.bookingDate===booking.date&&w.startTime===booking.startTime);
+    if (waiter) {
+      const newBooking={id:uid(),name:waiter.name,address:waiter.address,email:waiter.email,date:booking.date,startTime:booking.startTime,endTime:booking.endTime,createdAt:Date.now()};
+      const withNew=[...updated,newBooking];
+      try{await pantrySave(withNew);setBookings(withNew);}catch{}
+      const newWl=freshWl.filter(w=>!(w.bookingDate===booking.date&&w.startTime===booking.startTime));
+      try{await waitlistSave(newWl);setWaitlist(newWl);}catch{}
+      sendEmail({to:waiter.email, subject:'Votre créneau est confirmé — Tennis Château Rouge', html:`<p>Bonjour ${escapeHtml(waiter.name)},</p><p>Bonne nouvelle ! Le créneau du <strong>${longDate(new Date(booking.date+'T00:00:00'))}</strong> de <strong>${booking.startTime} à ${booking.endTime}</strong> vient de se libérer et vous êtes automatiquement inscrit(e).</p><p>Bon match !</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`}).catch(()=>{});
+    }
+    if (booking.challengeId) {
+      let freshCh;
+      try{ freshCh = await challengesGet(); }catch{ freshCh = challenges; }
+      const current = freshCh.find(c=>c.id===booking.challengeId);
+      if (current) {
+        const updatedCh = freshCh.map(c=>c.id===booking.challengeId?{...c,status:'cancelled',cancelledAt:Date.now()}:c);
+        await challengesSave(updatedCh);
+        setChallenges(updatedCh);
+        const other = challengeOtherParty(current, profile);
+        if (other.email) {
+          sendEmail({
+            to: other.email,
+            subject: 'Défi annulé — Tennis Château Rouge',
+            html: `<p>Bonjour ${escapeHtml(other.name)},</p><p>${escapeHtml(profileFullName(profile))} a annulé votre match du ${longDate(new Date(booking.date+'T00:00:00'))} à ${booking.startTime}.</p><p style="color:#888;font-size:12px">Tennis du Château Rouge · Ne pas répondre à cet email</p>`
+          }).catch(()=>{});
+        }
+      }
+    }
+    showToast(booking.challengeId ? "Défi annulé, votre adversaire a été prévenu." : 'Réservation annulée');
+  }
+
   const activeBookings = useMemo(()=>bookings.filter(b=>!b.cancelled), [bookings]);
 
   const days = useMemo(()=>{
@@ -829,6 +1105,16 @@ function App() {
 
   const doublons = useMemo(()=>isAdmin?detectDoublons(activeBookings):[],[activeBookings,isAdmin]);
 
+  const challengesPendingCount = useMemo(()=>{
+    if(!profile) return 0;
+    const myId = makeUserId(profile);
+    return challenges.filter(c=>{
+      if(c.status!=='pending') return false;
+      const turn = proposalTurn(c);
+      return (turn==='from'&&c.fromUserId===myId) || (turn==='to'&&c.toUserId===myId);
+    }).length;
+  },[challenges,profile]);
+
   if(!HAS_CONFIG) return html`<${ConfigMissing}/>`;
   if(loading) return html`<div class="loading-screen"><div class="spinner"></div></div>`;
   if(!profile && entryAdmin) return html`<${ResidentsView} residents=${residents} onSave=${saveResidents} fromEntry=${true} onBack=${()=>setEntryAdmin(false)}/>`;
@@ -842,9 +1128,16 @@ function App() {
       onPersonalStats=${()=>setModal('personal-stats')}
       onAdminToggle=${()=>isAdmin?logoutAdmin():setModal('admin')}
       onStatsClick=${goStats}
-      onAdminPanel=${()=>setView('admin-panel')}/>
+      onAdminPanel=${()=>setView('admin-panel')}
+      onOpenChallenges=${()=>setView(view==='challenges'?'main':'challenges')}
+      challengesPendingCount=${challengesPendingCount}/>
 
-    ${view==='admin-panel' ? html`<${AdminPanelView}
+    ${view==='challenges' ? html`<${ChallengesView}
+        challenges=${challenges} profile=${profile}
+        onBack=${()=>setView('main')}
+        onCreateChallenge=${()=>setModal('challenge-create')}
+        onOpenChallenge=${c=>setModal({type:'challenge-detail',challenge:c})}/>`
+    :view==='admin-panel' ? html`<${AdminPanelView}
         popup=${popup} journal=${journal} contactCfg=${contactCfg}
         onSavePopup=${async(p)=>{await popupSave(p);setPopup(p);showToast('Popup sauvegardée');}}
         onSaveJournal=${async(j)=>{await journalSave(j);setJournal(j);showToast('Journal mis à jour');}}
@@ -882,7 +1175,9 @@ function App() {
         onOpenReglement=${()=>setModal('reglement')}
         onOpenJournal=${()=>setModal('journal')}
         onOpenContact=${()=>setModal('contact')}
-        onMoreDays=${()=>setDaysVisible(v=>v+7)}/>`}
+        onMoreDays=${()=>setDaysVisible(v=>v+7)}
+        onOpenChallenges=${()=>setView('challenges')}
+        challengesPendingCount=${challengesPendingCount}/>`}
 
     ${modal==='admin'          && html`<${AdminModal} onClose=${()=>setModal(null)} onSubmit=${tryAdmin}/>`}
   ${modal==='stats-table'    && html`<${StatsTableModal} bookings=${bookings} onClose=${()=>setModal(null)}/>`}
@@ -914,11 +1209,28 @@ function App() {
         setBookingSuccess({date:data.date,startTime:data.startTime,endTime});
       }}/>`}
     ${modal?.type==='cancel'   && html`<${ConfirmModal}
-      title="Annuler cette réservation ?"
-      description=${`${longDate(new Date(modal.booking.date+'T00:00:00'))} · ${modal.booking.startTime}–${modal.booking.endTime} · ${modal.booking.name}`}
-      confirmLabel="Annuler la résa" tone="danger"
-      onConfirm=${async()=>{await cancelBooking(modal.booking.id);setModal(null);}}
+      title=${modal.booking.challengeId ? 'Annuler ce match ?' : 'Annuler cette réservation ?'}
+      description=${modal.booking.challengeId
+        ? `${longDate(new Date(modal.booking.date+'T00:00:00'))} · ${modal.booking.startTime}–${modal.booking.endTime}. Votre adversaire sera prévenu par email de l'annulation.`
+        : `${longDate(new Date(modal.booking.date+'T00:00:00'))} · ${modal.booking.startTime}–${modal.booking.endTime} · ${modal.booking.name}`}
+      confirmLabel=${modal.booking.challengeId ? 'Annuler le défi' : 'Annuler la résa'} tone="danger"
+      onConfirm=${async()=>{
+        if(modal.booking.challengeId) await cancelChallengeBooking(modal.booking);
+        else await cancelBooking(modal.booking.id);
+        setModal(null);
+      }}
       onCancel=${()=>setModal(null)}/>`}
+    ${modal==='challenge-create' && html`<${ChallengeCreateModal}
+      profile=${profile} allProfiles=${allProfiles} bookings=${activeBookings}
+      onClose=${()=>setModal(null)}
+      onConfirm=${async data=>{const c=await createChallenge(data);setModal(null);setView('challenges');}}/>`}
+    ${modal?.type==='challenge-detail' && html`<${ChallengeDetailModal}
+      challenge=${challenges.find(c=>c.id===modal.challenge.id)||modal.challenge}
+      profile=${profile} bookings=${activeBookings}
+      onClose=${()=>setModal(null)}
+      onAccept=${async slot=>{const r=await acceptChallengeSlot(modal.challenge,slot);if(r.ok)setModal(null);}}
+      onDecline=${async()=>{await declineChallenge(modal.challenge);setModal(null);}}
+      onPropose=${async slots=>{await proposeSlots(modal.challenge,slots);setModal(null);}}/>`}
 
     ${modal?.type==='waitlist-join' && html`<${ConfirmModal}
       title="S'inscrire en liste d'attente ?"
@@ -948,7 +1260,7 @@ function App() {
 /* ============================================================
    HEADER
    ============================================================ */
-function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggle,onStatsClick,onAdminPanel}) {
+function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggle,onStatsClick,onAdminPanel,onOpenChallenges,challengesPendingCount}) {
   return html`<header class="header">
     <div class="header-left">
       <div class="emblem"></div>
@@ -967,6 +1279,11 @@ function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggl
         </button>
       `}
 
+      <button class="defi-header-btn" onClick=${onOpenChallenges} title="Défis">
+        <${Icon} name="swords" size=${15}/>
+        ${challengesPendingCount>0&&html`<span class="defi-badge-dot">${challengesPendingCount}</span>`}
+      </button>
+
       <button class="pill" onClick=${onPersonalStats} title="Mon compte" style="flex-direction:column;align-items:flex-start;gap:1px;padding:6px 12px">
         <span style="display:flex;align-items:center;gap:5px">
           <${Icon} name="user" size=${13}/>
@@ -981,7 +1298,7 @@ function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggl
 /* ============================================================
    MAIN VIEW
    ============================================================ */
-function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays}) {
+function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays,onOpenChallenges,challengesPendingCount}) {
   const today=new Date();
   return html`<div>
     <section class="hero">
@@ -1000,6 +1317,10 @@ function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,ca
           <${Icon} name="star" size=${16}/> Trouver un partenaire de jeu
           ${annoncesCount > 0 && html`<span style="margin-left:8px;background:var(--green);color:var(--paper);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${annoncesCount} joueur${annoncesCount > 1 ? 's' : ''} disponible${annoncesCount > 1 ? 's' : ''}</span>`}
         </a>
+        <button class="hero-defi" onClick=${onOpenChallenges}>
+          <${Icon} name="swords" size=${16}/> Défier un voisin
+          ${challengesPendingCount > 0 && html`<span style="margin-left:4px;background:var(--clay);color:var(--paper);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">${challengesPendingCount} défi${challengesPendingCount > 1 ? 's' : ''} à répondre</span>`}
+        </button>
       </div>
       <div class="court-line" style="width:100%;margin-top:22px"></div>
     </section>
@@ -1093,6 +1414,7 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,onReques
                     <span>${mine?html`<em style="font-style:normal">Vous</em>`:b.name}</span>
                     ${isDoublon&&html`<span class="doublon-badge">⚠️ Doublon</span>`}
                     ${ongoing&&html`<span style="font-size:10px;background:var(--green);color:var(--paper);padding:2px 7px;border-radius:999px;font-weight:700">🎾 En cours</span>`}
+                    ${b.challengeId&&html`<span class="defi-vs-badge"><${Icon} name="swords" size=${10}/>vs ${mine?b.opponentName:b.name}</span>`}
                   </div>
                   <div class="booking-address">${b.address}</div>
                   <div class="booking-end">jusqu'à ${b.endTime}</div>
@@ -1121,6 +1443,305 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,onReques
       }
     </div>
   </article>`;
+}
+
+/* ============================================================
+   DÉFIS — UI
+   ============================================================ */
+function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge}) {
+  const myId = makeUserId(profile);
+  const mine = useMemo(()=>challenges.filter(c=>challengeParticipantIds(c).includes(myId)), [challenges, myId]);
+  const isMyTurn = c => {
+    if(c.status!=='pending') return false;
+    const turn = proposalTurn(c);
+    return (turn==='from'&&c.fromUserId===myId) || (turn==='to'&&c.toUserId===myId);
+  };
+  const toRespond = mine.filter(c=>isMyTurn(c)).sort((a,b)=>b.createdAt-a.createdAt);
+  const waiting   = mine.filter(c=>c.status==='pending'&&!isMyTurn(c)).sort((a,b)=>b.createdAt-a.createdAt);
+  const upcoming  = mine.filter(c=>c.status==='accepted').sort((a,b)=>{
+    const ka=(a.acceptedSlot?.date||'')+(a.acceptedSlot?.startTime||''), kb=(b.acceptedSlot?.date||'')+(b.acceptedSlot?.startTime||'');
+    return ka.localeCompare(kb);
+  });
+  const history = mine.filter(c=>['declined','expired','cancelled'].includes(c.status))
+    .sort((a,b)=>(b.respondedAt||b.cancelledAt||b.createdAt)-(a.respondedAt||a.cancelledAt||a.createdAt));
+
+  const rowFor = c => {
+    const other = challengeOtherParty(c, profile);
+    const initials = (other.name||'??').trim().split(' ').map(w=>w[0]).filter(Boolean).slice(0,2).join('').toUpperCase() || '?';
+    const latest = latestProposal(c);
+    let sub = '';
+    if (c.status==='accepted' && c.acceptedSlot) sub = formatSlot(c.acceptedSlot);
+    else if (c.status==='pending') sub = (latest.slots||[]).length>1 ? `${latest.slots.length} créneaux proposés` : formatSlot((latest.slots||[])[0]||{date:c.createdAt?dateKey(new Date(c.createdAt)):'',startTime:'',endTime:''});
+    else if (c.status==='declined') sub = 'Défi refusé';
+    else if (c.status==='expired') sub = "Aucun créneau n'a convenu à temps";
+    else if (c.status==='cancelled') sub = 'Match annulé';
+    const statusText = c.status==='pending' ? (isMyTurn(c)?'À répondre':'En attente')
+      : c.status==='accepted' ? 'Accepté' : c.status==='declined' ? 'Refusé' : c.status==='expired' ? 'Expiré' : 'Annulé';
+    return html`<button class="defi-row" onClick=${()=>onOpenChallenge(c)} key=${c.id}>
+      <div class="defi-avatar">${initials}</div>
+      <div style="flex:1;min-width:0;text-align:left">
+        <div style="font-weight:600;font-size:14px">${other.name||'Adversaire'}</div>
+        <div style="font-size:12px;color:var(--muted)">${sub}</div>
+      </div>
+      <span class="defi-status ${c.status}">${statusText}</span>
+    </button>`;
+  };
+
+  return html`<div class="view-page">
+    <div class="view-nav" style="justify-content:space-between">
+      <button class="back-btn" onClick=${onBack}><${Icon} name="back" size=${16}/> Accueil</button>
+      <button class="btn btn-primary" style="flex:none;padding:10px 16px;font-size:13px" onClick=${onCreateChallenge}><${Icon} name="plus" size=${15}/> Défi</button>
+    </div>
+    <div class="view-heading"><h2 class="view-h1">Défis</h2><p class="view-sub">Défiez un voisin pour un match, en privé.</p></div>
+    <div style="padding:0 20px">
+      ${toRespond.length>0 && html`<div style="margin-bottom:18px">
+        <div class="field-label">À répondre · ${toRespond.length}</div>
+        ${toRespond.map(rowFor)}
+      </div>`}
+      ${waiting.length>0 && html`<div style="margin-bottom:18px">
+        <div class="field-label">En attente</div>
+        ${waiting.map(rowFor)}
+      </div>`}
+      ${upcoming.length>0 && html`<div style="margin-bottom:18px">
+        <div class="field-label">À venir</div>
+        ${upcoming.map(rowFor)}
+      </div>`}
+      ${history.length>0 && html`<div style="margin-bottom:18px;opacity:.7">
+        <div class="field-label">Historique</div>
+        ${history.map(rowFor)}
+      </div>`}
+      ${mine.length===0 && html`<div style="text-align:center;padding:40px 20px;color:var(--muted)">
+        <p style="font-style:italic">Aucun défi pour l'instant.<br/>Lancez-en un depuis le bouton ci-dessus.</p>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+/* Sélecteur de créneaux réutilisé pour la création d'un défi et les contre-propositions */
+function SlotPicker({bookings,selectedSlots,onChange}) {
+  const dateOpts = useMemo(()=>{
+    const out=[], base=startOfDay(new Date());
+    for(let i=0;i<DAYS_AHEAD;i++){const d=new Date(base);d.setDate(base.getDate()+i);out.push(d);}
+    return out;
+  },[]);
+  const [activeDate,setActiveDate]=useState(dateKey(dateOpts[0]));
+  const shortLabel = d => isToday(d) ? "Aujourd'hui" : isTomorrow(d) ? 'Demain' : `${FR_DAYS[d.getDay()].slice(0,3)} ${d.getDate()} ${FR_MONTHS[d.getMonth()].slice(0,3)}`;
+
+  const activeSlots = useMemo(()=>{
+    const today=dateKey(new Date()), now=new Date(), currentHourStart=now.getHours()*60;
+    return START_SLOTS.filter(s=>activeDate!==today || timeToMin(s)>=currentHourStart);
+  },[activeDate]);
+
+  const dayBookings = useMemo(()=>bookings.filter(b=>b.date===activeDate).sort((a,b)=>a.startTime.localeCompare(b.startTime)),[bookings,activeDate]);
+  const total=(COURT_CLOSE_HOUR-COURT_OPEN_HOUR)*60;
+  const daySelected = selectedSlots.filter(s=>s.date===activeDate);
+
+  function toggle(startTime){
+    const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
+    const exists = selectedSlots.some(s=>s.date===activeDate&&s.startTime===startTime);
+    if(exists) onChange(selectedSlots.filter(s=>!(s.date===activeDate&&s.startTime===startTime)));
+    else onChange([...selectedSlots,{date:activeDate,startTime,endTime}]);
+  }
+  function remove(date,startTime){ onChange(selectedSlots.filter(s=>!(s.date===date&&s.startTime===startTime))); }
+  function isTaken(startTime){
+    const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
+    return dayBookings.some(b=>overlaps(b,{date:activeDate,startTime,endTime}));
+  }
+
+  const byDate = useMemo(()=>{
+    const map={};
+    for(const s of selectedSlots){ (map[s.date]=map[s.date]||[]).push(s); }
+    return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]));
+  },[selectedSlots]);
+
+  return html`<div>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px">
+      ${dateOpts.map(d=>{
+        const k=dateKey(d), count=selectedSlots.filter(s=>s.date===k).length;
+        return html`<button key=${k} onClick=${()=>setActiveDate(k)} style=${`flex-shrink:0;font-size:12px;font-weight:600;padding:8px 13px;border-radius:999px;font-family:inherit;cursor:pointer;white-space:nowrap;${k===activeDate?'background:var(--clay);color:var(--paper);border:none':'background:var(--bg);color:var(--ink);border:1px solid var(--line)'}`}>${shortLabel(d)}${count>0?` · ${count}`:''}</button>`;
+      })}
+    </div>
+
+    <div style="background:var(--bg);border-radius:14px;padding:14px;margin-bottom:12px">
+      <div class="field-label">Déjà pris ce jour-là</div>
+      <div style="position:relative;height:24px;background:var(--strip);border-radius:4px;overflow:hidden;margin:10px 0 8px">
+        ${dayBookings.map((b,i)=>{const sm=timeToMin(b.startTime)-COURT_OPEN_HOUR*60,w=durationMin(b.startTime,b.endTime);return html`<div key=${i} style=${`position:absolute;top:3px;bottom:3px;left:${(sm/total)*100}%;width:${(w/total)*100}%;background:var(--clay);border-radius:4px;opacity:.92`}></div>`;})}
+        ${daySelected.map((s,i)=>{const sm=timeToMin(s.startTime)-COURT_OPEN_HOUR*60;return html`<div key=${i} style=${`position:absolute;top:0;bottom:0;left:${(sm/total)*100}%;width:${(BOOKING_DURATION/total)*100}%;border:2px dashed var(--clay);background:rgba(184,74,44,.15);border-radius:4px;box-sizing:border-box`}></div>`;})}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)"><span>${COURT_OPEN_HOUR}h</span><span>${COURT_CLOSE_HOUR}h</span></div>
+    </div>
+
+    <p style="font-size:12px;color:var(--muted);font-style:italic;margin:0 0 10px">Touchez un créneau libre pour l'ajouter à votre proposition.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+      ${activeSlots.map(s=>{
+        const taken=isTaken(s);
+        const selected=daySelected.some(x=>x.startTime===s);
+        const endTime=minToTime(timeToMin(s)+BOOKING_DURATION);
+        return html`<button key=${s} type="button" disabled=${taken} onClick=${()=>toggle(s)} class=${`defi-chip ${selected&&!taken?'':'off'} ${taken?'taken':''}`}>${s} - ${endTime}</button>`;
+      })}
+    </div>
+
+    ${selectedSlots.length>0 && html`<div style="border-top:1px solid var(--line);padding-top:12px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+        <div class="field-label" style="margin-bottom:0">Créneaux proposés</div>
+        <div style="font-size:11px;color:var(--clay-deep);font-weight:700">${selectedSlots.length}</div>
+      </div>
+      ${byDate.map(([date,slots])=>html`<div key=${date} style="margin-bottom:8px">
+        <div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:5px;text-transform:uppercase">${longDate(new Date(date+'T00:00:00'))}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${slots.map(s=>html`<span key=${s.startTime} class="defi-pill">${s.startTime}-${s.endTime}<button onClick=${()=>remove(date,s.startTime)} style="display:flex;color:inherit"><${Icon} name="x" size=${11}/></button></span>`)}
+        </div>
+      </div>`)}
+    </div>`}
+  </div>`;
+}
+
+function ChallengeCreateModal({profile,allProfiles,bookings,onClose,onConfirm}) {
+  const [step,setStep]=useState('opponent');
+  const [search,setSearch]=useState('');
+  const [selectedOpponent,setSelectedOpponent]=useState(null);
+  const [manualMode,setManualMode]=useState(false);
+  const [manualName,setManualName]=useState('');
+  const [manualEmail,setManualEmail]=useState('');
+  const [slots,setSlots]=useState([]);
+  const [sending,setSending]=useState(false);
+
+  const neighbors = useMemo(()=>getReachableNeighbors(allProfiles, profile), [allProfiles, profile]);
+  const filtered = useMemo(()=>{
+    if(!search.trim()) return neighbors;
+    const q=normalizeStr(search);
+    return neighbors.filter(n=>normalizeStr(n.name).includes(q)||normalizeStr(n.address).includes(q));
+  },[neighbors,search]);
+
+  const canContinue = !!selectedOpponent || (manualMode && manualName.trim() && manualEmail.trim().includes('@'));
+
+  async function handleConfirm(){
+    setSending(true);
+    try{ await onConfirm({opponent:selectedOpponent, slots, manualName, manualEmail}); }
+    catch{ setSending(false); }
+  }
+
+  return html`<${Modal} onClose=${onClose}>
+    <div class="modal-header">
+      <div><div class="modal-eyebrow">Nouveau défi</div><h3 class="modal-title">${step==='opponent'?'Qui défier ?':'Choisir les créneaux'}</h3></div>
+      <button class="modal-close" onClick=${onClose}><${Icon} name="x"/></button>
+    </div>
+    <div class="modal-body">
+      ${step==='opponent' ? html`<div>
+        <label class="field">
+          <span class="field-label">Rechercher</span>
+          <input type="text" placeholder="Nom ou adresse" value=${search} onInput=${e=>setSearch(e.target.value)}/>
+        </label>
+        ${neighbors.length===0 && html`<p style="font-size:13px;color:var(--muted);font-style:italic;margin:8px 0 16px">Aucun voisin avec un email enregistré pour l'instant.</p>`}
+        <div style="margin-bottom:16px">
+          ${filtered.map(n=>{
+            const initials=(n.name||'??').trim().split(' ').map(w=>w[0]).filter(Boolean).slice(0,2).join('').toUpperCase()||'?';
+            const sel = selectedOpponent && selectedOpponent.userId===n.userId;
+            return html`<button key=${n.userId} type="button" class="defi-row" style=${sel?'border:2px solid var(--clay);background:rgba(184,74,44,.06)':''} onClick=${()=>{setSelectedOpponent(n);setManualMode(false);}}>
+              <div class="defi-avatar ${sel?'':'muted'}">${initials}</div>
+              <div style="flex:1;min-width:0;text-align:left">
+                <div style="font-weight:600;font-size:14px">${n.name}</div>
+                <div style="font-size:12px;color:var(--muted)">${n.address}</div>
+              </div>
+              ${sel && html`<div style="width:22px;height:22px;border-radius:50%;background:var(--clay);display:flex;align-items:center;justify-content:center;flex-shrink:0"><${Icon} name="check" size=${12}/></div>`}
+            </button>`;
+          })}
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin:6px 0 14px">
+          <div style="flex:1;height:1px;background:var(--line)"></div><span style="font-size:11px;color:var(--muted);font-weight:600">OU</span><div style="flex:1;height:1px;background:var(--line)"></div>
+        </div>
+        <button type="button" onClick=${()=>{setManualMode(true);setSelectedOpponent(null);}} style=${`width:100%;text-align:left;border:1px dashed var(--line);border-radius:14px;padding:14px;font-family:inherit;background:none;cursor:pointer;${manualMode?'border-color:var(--clay)':''}`}>
+          <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:${manualMode?'10px':'0'}"><${Icon} name="mail" size=${15}/>Voisin introuvable ? Défier par email</div>
+          ${manualMode && html`<div onClick=${e=>e.stopPropagation()}>
+            <input type="text" placeholder="Nom" value=${manualName} onInput=${e=>setManualName(e.target.value)} style="margin-bottom:8px"/>
+            <input type="email" placeholder="nom@exemple.fr" value=${manualEmail} onInput=${e=>setManualEmail(e.target.value)}/>
+          </div>`}
+        </button>
+      </div>` : html`<${SlotPicker} bookings=${bookings} selectedSlots=${slots} onChange=${setSlots}/>`}
+
+      <div class="modal-actions" style="margin-top:16px">
+        ${step==='slots' && html`<button class="btn btn-secondary" onClick=${()=>setStep('opponent')}>Retour</button>`}
+        <button class="btn btn-primary" disabled=${step==='opponent'?!canContinue:(slots.length===0||sending)}
+          onClick=${()=>step==='opponent'?setStep('slots'):handleConfirm()}>
+          ${step==='opponent' ? 'Continuer' : (sending?'Envoi...':`Envoyer le défi avec ${slots.length} créneau${slots.length>1?'x':''}`)}
+        </button>
+      </div>
+    </div>
+  </>`;
+}
+
+function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose}) {
+  const myId = makeUserId(profile);
+  const amFrom = challenge.fromUserId===myId;
+  const other = challengeOtherParty(challenge, profile);
+  const latest = latestProposal(challenge);
+  const turn = proposalTurn(challenge);
+  const myTurn = challenge.status==='pending' && ((turn==='from'&&amFrom)||(turn==='to'&&!amFrom));
+  const [selectedSlot,setSelectedSlot]=useState(null);
+  const [counterMode,setCounterMode]=useState(false);
+  const [counterSlots,setCounterSlots]=useState([]);
+  const [busy,setBusy]=useState(false);
+
+  const takenNow = slot => bookings.some(b=>overlaps(b,slot));
+  const availableSlots = (latest.slots||[]).filter(s=>!takenNow(s));
+  const effectiveSelected = selectedSlot || (availableSlots.length===1?availableSlots[0]:null);
+
+  async function handleAccept(){ if(!effectiveSelected) return; setBusy(true); await onAccept(effectiveSelected); setBusy(false); }
+  async function handlePropose(){ if(counterSlots.length===0) return; setBusy(true); await onPropose(counterSlots); setBusy(false); }
+
+  const statusText = {pending:'En attente', accepted:'Accepté', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
+
+  return html`<${Modal} onClose=${onClose}>
+    <div class="modal-header">
+      <div><div class="modal-eyebrow">Défi</div><h3 class="modal-title">vs ${other.name||'Adversaire'}</h3></div>
+      <button class="modal-close" onClick=${onClose}><${Icon} name="x"/></button>
+    </div>
+    <div class="modal-body">
+      ${challenge.status==='accepted' ? html`<div class="notice" style="background:#E3EBE4;color:var(--green)">
+          <${Icon} name="check" size=${16}/>
+          <div>Défi accepté ! ${challenge.acceptedSlot?formatSlot(challenge.acceptedSlot):''} — le court est réservé pour vous deux.</div>
+        </div>`
+      : challenge.status!=='pending' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
+          <${Icon} name="alert" size=${16}/>
+          <div>${challenge.status==='declined'?'Ce défi a été refusé.':challenge.status==='expired'?"Ce défi a expiré sans réponse.":'Ce match a été annulé.'}</div>
+        </div>`
+      : counterMode ? html`<div><${SlotPicker} bookings=${bookings} selectedSlots=${counterSlots} onChange=${setCounterSlots}/></div>`
+      : html`<div>
+          ${(challenge.proposals||[]).map((p,i)=>{
+            const mine = (p.by==='from')===amFrom;
+            return html`<div key=${i} class="defi-bubble ${mine?'mine':'theirs'}">
+              <div class="defi-bubble-label">${mine?'VOUS PROPOSEZ':`${(other.name||'').toUpperCase()} PROPOSE`}</div>
+              ${(p.slots||[]).map((s,j)=>html`<div key=${j} style=${`font-size:13px;font-weight:600;color:${mine?'var(--clay-deep)':'var(--ink)'}`}>${formatSlot(s)}${i===challenge.proposals.length-1&&takenNow(s)?' · pris entre-temps':''}</div>`)}
+            </div>`;
+          })}
+          ${myTurn ? html`<div style="margin-top:8px">
+              ${latest.slots.map((s,i)=>{
+                const taken=takenNow(s);
+                const sel = effectiveSelected && effectiveSelected.startTime===s.startTime && effectiveSelected.date===s.date;
+                return html`<button key=${i} type="button" disabled=${taken} class="defi-slot ${sel&&!taken?'selected':''} ${taken?'taken':''}" onClick=${()=>setSelectedSlot(s)}>
+                  <div class="defi-slot-radio">${sel&&!taken?html`<${Icon} name="check" size=${12}/>`:null}</div>
+                  <div>
+                    <div style=${`font-weight:600;font-size:14px;${taken?'text-decoration:line-through':''}`}>${longDate(new Date(s.date+'T00:00:00'))}</div>
+                    <div style="font-size:12px;color:var(--muted)">${s.startTime} - ${s.endTime}</div>
+                  </div>
+                  ${taken && html`<span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--muted)">Pris</span>`}
+                </button>`;
+              })}
+            </div>`
+          : html`<p style="text-align:center;font-size:12px;color:var(--muted);font-style:italic;margin-top:14px">En attente de la réponse de ${other.name||'votre adversaire'}</p>`}
+        </div>
+      }
+
+      ${challenge.status==='pending' && myTurn && html`<div class="modal-actions" style="flex-direction:column;gap:9px;margin-top:14px">
+        ${counterMode && html`<button class="btn btn-secondary" onClick=${()=>setCounterMode(false)}>Retour</button>`}
+        ${counterMode && html`<button class="btn btn-primary" disabled=${counterSlots.length===0||busy} onClick=${handlePropose}>${busy?'Envoi...':`Envoyer ${counterSlots.length} créneau${counterSlots.length>1?'x':''}`}</button>`}
+        ${!counterMode && html`<button class="btn btn-green" disabled=${!effectiveSelected||busy} onClick=${handleAccept}><${Icon} name="check" size=${15}/>Accepter ce créneau</button>`}
+        ${!counterMode && html`<button class="btn btn-secondary" onClick=${()=>setCounterMode(true)}>Proposer d'autres créneaux</button>`}
+        ${!counterMode && html`<button type="button" onClick=${onDecline} style="text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:4px">Décliner le défi</button>`}
+      </div>`}
+    </div>
+  </>`;
 }
 
 /* ============================================================
