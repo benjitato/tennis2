@@ -368,13 +368,30 @@ const isChallengeStale = (c, bookings) => {
   if (slots.length===0) return false;
   return slots.every(isSlotPast) || slots.every(s=>slotTaken(s,bookings));
 };
-const challengeParticipantIds = c => [c.fromUserId, c.toUserId].filter(Boolean);
-const isChallengeParticipant = (c, profile) => challengeParticipantIds(c).includes(makeUserId(profile));
-const bookingIsChallengeParticipant = (b, profile) => !!b.challengeId && [b.defiFromUserId,b.defiToUserId].filter(Boolean).includes(makeUserId(profile));
+/* Rôle de "profile" dans le défi c : 'from' (défieur), 'to' (défié) ou null (pas concerné).
+   On matche d'abord par userId (fiable), puis par email en secours (utile si le userId du défié
+   n'a pas encore été rattaché, ou a changé depuis — l'email est plus stable que le slug d'identité). */
+function challengeMyRole(c, profile) {
+  const myId = makeUserId(profile);
+  const myEmail = (profile?.email||'').trim().toLowerCase();
+  if (c.fromUserId && c.fromUserId===myId) return 'from';
+  if (c.toUserId && c.toUserId===myId) return 'to';
+  if (myEmail && (c.fromEmail||'').trim().toLowerCase()===myEmail) return 'from';
+  if (myEmail && (c.toEmail||'').trim().toLowerCase()===myEmail) return 'to';
+  return null;
+}
+const isChallengeParticipant = (c, profile) => challengeMyRole(c, profile)!==null;
+const bookingIsChallengeParticipant = (b, profile, challenges) => {
+  if (!b.challengeId) return false;
+  const myId = makeUserId(profile);
+  if ([b.defiFromUserId,b.defiToUserId].filter(Boolean).includes(myId)) return true;
+  const ch = (challenges||[]).find(c=>c.id===b.challengeId);
+  return ch ? challengeMyRole(ch, profile)!==null : false;
+};
 const formatSlot = slot => `${longDate(new Date(slot.date+'T00:00:00'))} · ${slot.startTime}-${slot.endTime}`;
 const challengeOtherParty = (c, profile) => {
-  const myId = makeUserId(profile);
-  return c.fromUserId===myId
+  const role = challengeMyRole(c, profile);
+  return role==='from'
     ? {name:c.toName, address:c.toAddress, email:c.toEmail, userId:c.toUserId}
     : {name:c.fromName, address:c.fromAddress, email:c.fromEmail, userId:c.fromUserId};
 };
@@ -726,6 +743,15 @@ function App() {
     }
   },[view]);
 
+  // Rafraîchir les défis immédiatement à l'entrée dans l'écran Défis (sans attendre le polling)
+  useEffect(()=>{
+    if(view==='challenges'){
+      challengesGet().then(ch=>{
+        pantryGet().then(bd=>checkChallengeExpirations(ch, (bd.bookings||[]).filter(Boolean))).catch(()=>setChallenges(ch));
+      }).catch(()=>{});
+    }
+  },[view]);
+
   useEffect(()=>{
     if(!HAS_CONFIG){setLoading(false);return;}
     (async()=>{
@@ -775,21 +801,8 @@ function App() {
     if(!challengeDeepLink || !profile || loading) return;
     const c = challenges.find(x=>x.id===challengeDeepLink.id);
     if(c){
-      (async()=>{
-        let target=c;
-        if(!c.toUserId){
-          const myId=makeUserId(profile);
-          try{
-            const fresh = await challengesGet();
-            const updated = fresh.map(x=>x.id===c.id?{...x,toUserId:myId,toAddress:profileAddr(profile)}:x);
-            await challengesSave(updated);
-            setChallenges(updated);
-            target = updated.find(x=>x.id===c.id) || c;
-          }catch{}
-        }
-        setView('challenges');
-        setModal({type:'challenge-detail', challenge:target});
-      })();
+      setView('challenges');
+      openChallenge(c);
     }
     setChallengeDeepLink(null);
     try{
@@ -839,7 +852,7 @@ function App() {
     showToast('Mode administrateur activé');return true;
   };
   const logoutAdmin=()=>{saveAdminFlag(false);setIsAdmin(false);setView('main');showToast('Mode admin désactivé');};
-  const canCancel=b=>isAdmin||sameResident(b,profile)||bookingIsChallengeParticipant(b,profile);
+  const canCancel=b=>isAdmin||sameResident(b,profile)||bookingIsChallengeParticipant(b,profile,challenges);
 
   async function createBooking({date,startTime,emailForBooking}) {
     const endTime=minToTime(timeToMin(startTime)+BOOKING_DURATION);
@@ -983,7 +996,7 @@ function App() {
     let fresh;
     try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
     const current = fresh.find(c=>c.id===challenge.id) || challenge;
-    const by = current.fromUserId===makeUserId(profile) ? 'from' : 'to';
+    const by = challengeMyRole(current, profile) || (current.fromUserId===makeUserId(profile) ? 'from' : 'to');
     const updated = fresh.map(c=>c.id===challenge.id?{...c, proposals:[...c.proposals,{by,slots,createdAt:Date.now()}], status:'pending'}:c);
     await challengesSave(updated);
     setChallenges(updated);
@@ -1053,6 +1066,24 @@ function App() {
     showToast('Défi décliné');
   }
 
+  /* Ouvre un défi et, si c'est la première fois que le défié l'ouvre (identifié par email
+     mais pas encore rattaché par userId), on rattache son identité au passage. */
+  async function openChallenge(challenge) {
+    const role = challengeMyRole(challenge, profile);
+    let target = challenge;
+    if (role==='to' && !challenge.toUserId) {
+      const myId = makeUserId(profile);
+      try{
+        const fresh = await challengesGet();
+        const updated = fresh.map(x=>x.id===challenge.id?{...x,toUserId:myId,toAddress:profileAddr(profile)}:x);
+        await challengesSave(updated);
+        setChallenges(updated);
+        target = updated.find(x=>x.id===challenge.id) || challenge;
+      }catch{}
+    }
+    setModal({type:'challenge-detail', challenge:target});
+  }
+
   async function cancelChallengeBooking(booking) {
     let fresh, freshWl;
     try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch{showToast('Lecture impossible','error');return;}
@@ -1107,11 +1138,10 @@ function App() {
 
   const challengesPendingCount = useMemo(()=>{
     if(!profile) return 0;
-    const myId = makeUserId(profile);
     return challenges.filter(c=>{
       if(c.status!=='pending') return false;
-      const turn = proposalTurn(c);
-      return (turn==='from'&&c.fromUserId===myId) || (turn==='to'&&c.toUserId===myId);
+      const role = challengeMyRole(c, profile);
+      return role && proposalTurn(c)===role;
     }).length;
   },[challenges,profile]);
 
@@ -1136,7 +1166,7 @@ function App() {
         challenges=${challenges} profile=${profile}
         onBack=${()=>setView('main')}
         onCreateChallenge=${()=>setModal('challenge-create')}
-        onOpenChallenge=${c=>setModal({type:'challenge-detail',challenge:c})}/>`
+        onOpenChallenge=${c=>openChallenge(c)}/>`
     :view==='admin-panel' ? html`<${AdminPanelView}
         popup=${popup} journal=${journal} contactCfg=${contactCfg}
         onSavePopup=${async(p)=>{await popupSave(p);setPopup(p);showToast('Popup sauvegardée');}}
@@ -1449,12 +1479,11 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,onReques
    DÉFIS — UI
    ============================================================ */
 function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge}) {
-  const myId = makeUserId(profile);
-  const mine = useMemo(()=>challenges.filter(c=>challengeParticipantIds(c).includes(myId)), [challenges, myId]);
+  const mine = useMemo(()=>challenges.filter(c=>challengeMyRole(c, profile)!==null), [challenges, profile]);
   const isMyTurn = c => {
     if(c.status!=='pending') return false;
-    const turn = proposalTurn(c);
-    return (turn==='from'&&c.fromUserId===myId) || (turn==='to'&&c.toUserId===myId);
+    const role = challengeMyRole(c, profile);
+    return role && proposalTurn(c)===role;
   };
   const toRespond = mine.filter(c=>isMyTurn(c)).sort((a,b)=>b.createdAt-a.createdAt);
   const waiting   = mine.filter(c=>c.status==='pending'&&!isMyTurn(c)).sort((a,b)=>b.createdAt-a.createdAt);
@@ -1672,12 +1701,12 @@ function ChallengeCreateModal({profile,allProfiles,bookings,onClose,onConfirm}) 
 }
 
 function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDecline,onPropose}) {
-  const myId = makeUserId(profile);
-  const amFrom = challenge.fromUserId===myId;
+  const myRole = challengeMyRole(challenge, profile);
+  const amFrom = myRole==='from';
   const other = challengeOtherParty(challenge, profile);
   const latest = latestProposal(challenge);
   const turn = proposalTurn(challenge);
-  const myTurn = challenge.status==='pending' && ((turn==='from'&&amFrom)||(turn==='to'&&!amFrom));
+  const myTurn = challenge.status==='pending' && myRole && turn===myRole;
   const [selectedSlot,setSelectedSlot]=useState(null);
   const [counterMode,setCounterMode]=useState(false);
   const [counterSlots,setCounterSlots]=useState([]);
