@@ -1693,7 +1693,7 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
       ${ticks}
       ${bookings.map(b=>{
         const sm=timeToMin(b.startTime)-COURT_OPEN_HOUR*60, w=durationMin(b.startTime,b.endTime);
-        const mine=sameResident(b,profile);
+        const mine=sameResident(b,profile)||isDefiParticipant(b);
         return html`<div class="strip-block ${mine?'mine':''}" style=${`left:${(sm/total)*100}%;width:${(w/total)*100}%`} title=${`${b.startTime}–${b.endTime} · ${b.name}`}></div>`;
       })}
     </div>
@@ -1706,7 +1706,7 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
           </button>`
         : html`<div>
             ${bookings.map(b=>{
-              const mine=sameResident(b,profile);
+              const mine=sameResident(b,profile)||isDefiParticipant(b);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
               const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''} ${isPastBooking(b)?'past-booking':''}" key=${b.id}>
                 <div class="booking-time">
