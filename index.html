@@ -1730,7 +1730,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
               })}
             </div>`
           : html`<p style="text-align:center;font-size:12px;color:var(--muted);font-style:italic;margin-top:14px">En attente de la réponse de ${other.name||'votre adversaire'}</p>`}
-        </div>
+        </div>`
       }
 
       ${challenge.status==='pending' && myTurn && html`<div class="modal-actions" style="flex-direction:column;gap:9px;margin-top:14px">
