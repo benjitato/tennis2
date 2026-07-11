@@ -1061,7 +1061,7 @@ function App() {
   /* ── Défis ── */
   async function checkChallengeExpirations(list, bookingsList) {
     const stillPending = (list||[]).filter(c=>c.status==='pending');
-    const toExpire = [], toConflictCancel = [];
+    const toExpire = [], toConflictCancel = [], toPrune = [];
     for (const c of stillPending) {
       // Un défi malformé (ex : ancien enregistrement de test sans "proposals") ne doit pas
       // interrompre la vérification des autres défis de la liste.
@@ -1069,16 +1069,31 @@ function App() {
         const slots = latestProposal(c).slots||[];
         if (slots.length===0) continue;
         if (slots.every(isSlotPast)) { toExpire.push(c); continue; }
-        // Un créneau proposé vient d'être réservé ailleurs (avant validation du défi) : on annule le défi entier.
-        if (slots.some(s=>!isSlotPast(s) && slotTaken(s, bookingsList))) { toConflictCancel.push(c); }
+        // Un ou plusieurs créneaux proposés viennent d'être réservés ailleurs (avant validation du défi).
+        // On ne retire que ces créneaux-là de la proposition en cours ; le défi ne s'annule
+        // entièrement que s'il ne reste plus aucun créneau disponible.
+        const conflicting = slots.filter(s=>!isSlotPast(s) && slotTaken(s, bookingsList));
+        if (conflicting.length>0) {
+          const remaining = slots.filter(s=>!conflicting.includes(s));
+          if (remaining.length===0) toConflictCancel.push(c);
+          else toPrune.push({c, remaining, removed:conflicting});
+        }
       }catch{}
     }
-    if (toExpire.length===0 && toConflictCancel.length===0) { setChallenges(list); return; }
+    if (toExpire.length===0 && toConflictCancel.length===0 && toPrune.length===0) { setChallenges(list); return; }
     const expireIds = new Set(toExpire.map(c=>c.id));
     const conflictIds = new Set(toConflictCancel.map(c=>c.id));
+    const pruneMap = new Map(toPrune.map(p=>[p.c.id, p]));
     const updated = list.map(c=>{
       if (expireIds.has(c.id)) return {...c, status:'expired'};
       if (conflictIds.has(c.id)) return {...c, status:'cancelled', cancelledAt:Date.now(), cancelReason:'conflict'};
+      if (pruneMap.has(c.id)) {
+        const {remaining} = pruneMap.get(c.id);
+        const proposals = [...(c.proposals||[])];
+        const lastIdx = proposals.length-1;
+        proposals[lastIdx] = {...proposals[lastIdx], slots: remaining};
+        return {...c, proposals};
+      }
       return c;
     });
     try{ await challengesSave(updated); }catch{}
@@ -1090,8 +1105,19 @@ function App() {
         bodyHtml: `Le créneau proposé pour votre défi (<strong>${escapeHtml(c.fromName)}</strong> vs <strong>${escapeHtml(c.toName)}</strong>) vient d'être réservé par quelqu'un d'autre.`,
         ctaHtml: mailCta('Relancer un défi', APP_URL)
       });
-      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi annulé — créneau indisponible', html: mailHtml}).catch(()=>{});
-      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi annulé — créneau indisponible', html: mailHtml}).catch(()=>{});
+      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi annulé, créneau indisponible', html: mailHtml}).catch(()=>{});
+      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi annulé, créneau indisponible', html: mailHtml}).catch(()=>{});
+    });
+    toPrune.forEach(({c})=>{
+      const viewUrl = `${APP_URL}?challenge=${c.id}&action=view`;
+      const mailHtml = mailShell({
+        badgeColor: MAIL_NEG, badgeLabel: 'Créneau indisponible', icon: mailUndoIcon(),
+        headline: `Un créneau proposé n'est plus disponible`,
+        bodyHtml: `Un des créneaux proposés pour votre défi (<strong>${escapeHtml(c.fromName)}</strong> vs <strong>${escapeHtml(c.toName)}</strong>) vient d'être réservé par quelqu'un d'autre. Les autres créneaux proposés restent valables, le défi continue.`,
+        ctaHtml: mailCta('Voir le défi', viewUrl)
+      });
+      if (c.fromEmail) sendEmail({to:c.fromEmail, subject:'Défi : un créneau proposé est indisponible', html: mailHtml}).catch(()=>{});
+      if (c.toEmail)   sendEmail({to:c.toEmail,   subject:'Défi : un créneau proposé est indisponible', html: mailHtml}).catch(()=>{});
     });
   }
 
