@@ -2642,17 +2642,17 @@ function ProfileEntry({residents,onSubmit,onAdminEntry,onContact}) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
           <label class="field" style="margin-bottom:0">
             <span class="field-label">Prénom</span>
-            <input value=${prenom} onInput=${e=>setPrenom(e.target.value)} placeholder="Marie" autoFocus/>
+            <input value=${prenom} onInput=${e=>setPrenom(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleSubmit()} placeholder="Marie" autoFocus/>
           </label>
           <label class="field" style="margin-bottom:0">
             <span class="field-label">Nom</span>
-            <input value=${nom} onInput=${e=>{setNom(e.target.value);setError(null);}} placeholder="Lefèvre"/>
+            <input value=${nom} onInput=${e=>{setNom(e.target.value);setError(null);}} onKeyDown=${e=>e.key==='Enter'&&handleSubmit()} placeholder="Lefèvre"/>
           </label>
         </div>
         <div class="field">
           <span class="field-label">Adresse</span>
           <div class="addr-row">
-            <input value=${addressNumber} onInput=${e=>setAddressNumber(e.target.value)} placeholder="N°" style="text-align:center"/>
+            <input value=${addressNumber} onInput=${e=>setAddressNumber(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleSubmit()} placeholder="N°" style="text-align:center"/>
             <select value=${addressStreet} onChange=${e=>setAddressStreet(e.target.value)}>
               ${STREETS.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}
             </select>
@@ -3282,7 +3282,7 @@ function AdminPanelView({popup,journal,contactCfg,residents,waitlist,bookings,co
       <button class="stats-tab ${tab==='residents'?'active':''}" onClick=${()=>setTab('residents')}>Résidents</button>
       <button class="stats-tab ${tab==='waitlist'?'active':''}" onClick=${()=>setTab('waitlist')}>Liste d'attente</button>
       <button class="stats-tab ${tab==='coords'?'active':''}" onClick=${()=>setTab('coords')}>Coordonnées</button>
-      <button class="stats-tab ${tab==='emails'?'active':''}" onClick=${()=>setTab('emails')}>Emails</button>
+      <button class="stats-tab ${tab==='emails'?'active':''}" onClick=${()=>setTab('emails')}>Track erreurs</button>
     </div>
     <div style="padding:16px 20px">
       ${tab==='popup'    && html`<${AdminPopupTab}    popup=${popup}      onSave=${onSavePopup}      onAddToJournal=${(entry)=>{onSaveJournal([...journal,entry]);}} />`}
