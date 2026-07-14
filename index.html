@@ -2924,7 +2924,7 @@ function StatsTableModal({bookings,onClose}) {
                   return html`<tr key=${b.id} class=${s==='cancelled'?'row-cancelled':''}>
                   <td class="cell-strike" style="font-weight:600">${b.name||'—'}</td>
                   <td class="cell-strike" style="color:var(--muted)">${b.address||'—'}</td>
-                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}${b.createdAt?html`<div class="stats-date-meta">${new Date(b.createdAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>`:''}</td>
+                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}</td>
                   <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.startTime}</td>
                   <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums;color:var(--muted)">${b.createdAt?new Date(b.createdAt).toLocaleDateString('fr-FR'):'—'}${b.createdAt?html`<div class="stats-date-meta">${new Date(b.createdAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>`:''}</td>
                   <td>
