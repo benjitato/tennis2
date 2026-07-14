@@ -221,6 +221,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .status-badge.past{background:var(--strip);color:var(--muted)}
 .status-badge.cancelled{background:#FCEBEB;color:#791F1F}
 .stats-cancelled-meta{font-size:10.5px;color:var(--muted);margin-top:3px}
+.stats-date-meta{font-size:10.5px;color:var(--muted);margin-top:3px;font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums}
 .stats-tbl tr.row-cancelled td{opacity:.6}
 .stats-tbl tr.row-cancelled .cell-strike{text-decoration:line-through}
 .stats-table-footer{padding:14px 24px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;font-size:13px;color:var(--muted)}
@@ -2923,9 +2924,9 @@ function StatsTableModal({bookings,onClose}) {
                   return html`<tr key=${b.id} class=${s==='cancelled'?'row-cancelled':''}>
                   <td class="cell-strike" style="font-weight:600">${b.name||'—'}</td>
                   <td class="cell-strike" style="color:var(--muted)">${b.address||'—'}</td>
-                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}</td>
+                  <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.date}${b.createdAt?html`<div class="stats-date-meta">${new Date(b.createdAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>`:''}</td>
                   <td class="cell-strike" style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums">${b.startTime}</td>
-                  <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums;color:var(--muted)">${b.createdAt?new Date(b.createdAt).toLocaleDateString('fr-FR'):'—'}</td>
+                  <td style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums;color:var(--muted)">${b.createdAt?new Date(b.createdAt).toLocaleDateString('fr-FR'):'—'}${b.createdAt?html`<div class="stats-date-meta">${new Date(b.createdAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>`:''}</td>
                   <td>
                     <span class="status-badge ${s}">${statusLabel(s)}</span>
                     ${s==='cancelled'&&b.cancelledAt?html`<div class="stats-cancelled-meta">le ${new Date(b.cancelledAt).toLocaleDateString('fr-FR')}</div>`:''}
