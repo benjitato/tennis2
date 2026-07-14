@@ -187,6 +187,8 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .preview-strip .strip-block{top:3px;bottom:3px}
 .preview-strip .candidate{position:absolute;top:0;bottom:0;border:2px dashed var(--clay);background:rgba(184,74,44,.15);border-radius:4px;box-sizing:border-box;z-index:2}
 .preview-strip .candidate.conflict{border-color:#A2351A;background:rgba(162,53,26,.18)}
+.preview-strip{cursor:pointer}
+.preview-strip .hover-preview{position:absolute;top:0;bottom:0;background:rgba(184,74,44,.10);border:1px dashed rgba(184,74,44,.45);border-radius:4px;box-sizing:border-box;z-index:1;pointer-events:none}
 .preview-bounds{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-bottom:8px}
 .preview-list{list-style:none;padding:0;margin:0;font-size:13px}
 .preview-list li{padding:4px 0;color:var(--ink);line-height:1.3}
@@ -2129,6 +2131,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
   const [saving,   setSaving]   = useState(false);
   const [emailStep, setEmailStep] = useState(false);
   const [emailInput, setEmailInput] = useState('');
+  const [hoverTime, setHoverTime] = useState(null);
 
   const endTime = minToTime(timeToMin(startTime)+BOOKING_DURATION);
 
@@ -2160,6 +2163,21 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
 
   const totalMin=(COURT_CLOSE_HOUR-COURT_OPEN_HOUR)*60;
 
+  // Frise cliquable : convertit une position X en créneau horaire valide (ou null si non sélectionnable)
+  function slotFromPointer(clientX, rect){
+    const ratio=Math.min(1,Math.max(0,(clientX-rect.left)/rect.width));
+    const snappedMin=Math.round((ratio*totalMin)/SLOT_MIN)*SLOT_MIN;
+    const clampedMin=Math.min(totalMin-BOOKING_DURATION,Math.max(0,snappedMin));
+    const t=minToTime(COURT_OPEN_HOUR*60+clampedMin);
+    return startSlots.includes(t)?t:null;
+  }
+  function handleStripMove(e){ setHoverTime(slotFromPointer(e.clientX,e.currentTarget.getBoundingClientRect())); }
+  function handleStripLeave(){ setHoverTime(null); }
+  function handleStripClick(e){
+    const t=slotFromPointer(e.clientX,e.currentTarget.getBoundingClientRect());
+    if(t) setStartTime(t);
+  }
+
   async function confirm() {
     setError(null);
     if(conflict){setError('Ce créneau est déjà réservé.');return;}
@@ -2187,9 +2205,10 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
       <!-- Preview -->
       <div class="preview-card">
         <div class="preview-title">Déjà pris ce jour-là</div>
-        <div class="preview-strip">
+        <div class="preview-strip" onMouseMove=${handleStripMove} onMouseLeave=${handleStripLeave} onClick=${handleStripClick}>
           ${(()=>{const t=[];for(let i=0;i<=COURT_CLOSE_HOUR-COURT_OPEN_HOUR;i++) t.push(html`<div class="strip-tick" style=${`left:${(i*60/totalMin)*100}%`}><div class="strip-tick-line"></div></div>`);return t;})()}
           ${dayBookings.map(b=>{const sm=timeToMin(b.startTime)-COURT_OPEN_HOUR*60,w=durationMin(b.startTime,b.endTime);return html`<div class="strip-block" style=${`left:${(sm/totalMin)*100}%;width:${(w/totalMin)*100}%`}></div>`;})}
+          ${hoverTime&&hoverTime!==startTime&&html`<div class="hover-preview" style=${`left:${((timeToMin(hoverTime)-COURT_OPEN_HOUR*60)/totalMin)*100}%;width:${(BOOKING_DURATION/totalMin)*100}%`}></div>`}
           <div class="candidate ${conflict?'conflict':''}" style=${`left:${((timeToMin(startTime)-COURT_OPEN_HOUR*60)/totalMin)*100}%;width:${(BOOKING_DURATION/totalMin)*100}%`}></div>
         </div>
         <div class="preview-bounds"><span>${COURT_OPEN_HOUR}h</span><span>${COURT_CLOSE_HOUR}h</span></div>
