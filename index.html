@@ -6,7 +6,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F2EBDB">
-<title>[PAGE DE TEST] Tennis du Château Rouge</title>
+<title>Tennis du Château Rouge</title>
    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎾</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -245,7 +245,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .defi-status{font-size:10px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap;flex-shrink:0}
 .defi-status.pending{background:var(--clay-soft);color:var(--clay-deep)}
 .defi-status.accepted{background:#E3EBE4;color:var(--green)}
-.defi-status.completed,.defi-status.declined,.defi-status.expired,.defi-status.cancelled{background:var(--strip);color:var(--muted)}
+.defi-status.declined,.defi-status.expired,.defi-status.cancelled{background:var(--strip);color:var(--muted)}
 .defi-slot{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:14px;border:1px solid var(--line);margin-bottom:8px;width:100%;text-align:left;background:var(--paper)}
 .defi-slot.selected{border:2px solid var(--clay);background:rgba(184,74,44,.06)}
 .defi-slot.taken{opacity:.5}
@@ -303,13 +303,14 @@ const COURT_CLOSE_HOUR = 22;
 const SLOT_MIN         = 60;
 const BOOKING_DURATION = 60; // minutes — fixed 1h
 const DAYS_AHEAD       = 7;
+const MAX_ACTIVE_BOOKINGS_PER_PERSON = 4; // résas actives à venir (hors défis) au-delà desquelles on bloque une nouvelle résa
 const POLL_MS          = 20000;
 const FR_DAYS   = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 const FR_DAYS_F = ['dimanches','lundis','mardis','mercredis','jeudis','vendredis','samedis'];
 const FR_MONTHS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
 const REGLEMENT = [
   {icon:'🏘️', title:'Accès', text:"Le terrain est exclusivement réservé aux habitants du lotissement du Château Rouge."},
-  {icon:'🎾', title:'Réservations', text:"Une seule réservation à la suite par foyer. Maximum 1 heure par session. Il faut avoir effectué sa partie en cours avant de pouvoir effectuer une nouvelle réservation (au risque d'être considéré comme non prioritaire)."},
+  {icon:'🎾', title:'Réservations', text:"Une seule réservation à la suite par foyer. Maximum 1 heure par session. Toute nouvelle réservation suppose que la partie en cours soit terminée, sous peine de perdre sa priorité."},
   {icon:'⏳', title:'Occupation du terrain', text:"Si le terrain est libre à l'expiration de votre créneau, vous pouvez continuer à jouer. En revanche, tout joueur ayant réservé est prioritaire et doit pouvoir accéder au terrain à l'heure convenue."},
   {icon:'👶', title:'Enfants', text:"Le terrain est réservé à la pratique du tennis. Les jeux d'enfants ne sont pas autorisés sur le court. Nous comptons sur la vigilance des parents."},
   {icon:'🤝', title:'Fair-play', text:"Merci de laisser le terrain propre après votre session et de respecter le matériel collectif."},
@@ -1027,6 +1028,8 @@ function App() {
     if(freshActive.some(b=>overlaps(b,candidate))) throw new Error('Ce créneau est déjà réservé.');
     const sameFamilySameDay=freshActive.filter(b=>b.date===date&&sameHousehold(b,profile));
     if(sameFamilySameDay.some(b=>b.endTime===startTime||b.startTime===endTime)) throw new Error('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.');
+    const personActiveCount=freshActive.filter(b=>!b.challengeId && !isPastBooking(b) && sameResident(b,profile)).length;
+    if(personActiveCount>=MAX_ACTIVE_BOOKINGS_PER_PERSON) throw new Error(`Vous avez déjà ${MAX_ACTIVE_BOOKINGS_PER_PERSON} réservations actives à venir. Pour en faire une nouvelle, annulez d'abord l'une de vos réservations existantes.`);
     const updated=[...fresh,candidate];
     try{await pantrySave(updated);}catch(e){throw new Error('Écriture refusée ('+e.message+')');}
     setBookings(updated);
@@ -1111,6 +1114,12 @@ function App() {
       showToast('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.','error');
       return;
     }
+    // Même plafond que createBooking : reprendre un créneau ne doit pas permettre de dépasser la limite.
+    const takerActiveCount=fresh.filter(b=>!b.cancelled && b.id!==target.id && !b.challengeId && !isPastBooking(b) && sameResident(b,profile)).length;
+    if(takerActiveCount>=MAX_ACTIVE_BOOKINGS_PER_PERSON){
+      showToast(`Vous avez déjà ${MAX_ACTIVE_BOOKINGS_PER_PERSON} réservations actives à venir. Annulez-en une avant d'en reprendre une nouvelle.`,'error');
+      return;
+    }
     const newBooking={id:uid(),name:profileFullName(profile),address:profileAddr(profile),email:profile.email||'',date:target.date,startTime:target.startTime,endTime:target.endTime,createdAt:Date.now()};
     const updated=fresh.map(b=>b.id===target.id?{...b,cancelled:true,cancelledAt:Date.now(),cancelledReason:'priority-taken'}:b).concat([newBooking]);
     try{await pantrySave(updated);}catch{showToast('Réservation impossible','error');return;}
@@ -1170,7 +1179,6 @@ function App() {
   /* ── Défis ── */
   async function checkChallengeExpirations(list, bookingsList) {
     const stillPending = (list||[]).filter(c=>c.status==='pending');
-    const stillAccepted = (list||[]).filter(c=>c.status==='accepted');
     const toExpire = [], toConflictCancel = [], toPrune = [];
     for (const c of stillPending) {
       // Un défi malformé (ex : ancien enregistrement de test sans "proposals") ne doit pas
@@ -1190,23 +1198,13 @@ function App() {
         }
       }catch{}
     }
-    // Un défi accepté dont le créneau retenu est passé devient "terminé" : il sort du badge
-    // "défi(s) programmé(s)" et de la section "À venir" pour rejoindre l'Historique.
-    const toComplete = [];
-    for (const c of stillAccepted) {
-      try{
-        if (c.acceptedSlot && isSlotPast(c.acceptedSlot)) toComplete.push(c);
-      }catch{}
-    }
-    if (toExpire.length===0 && toConflictCancel.length===0 && toPrune.length===0 && toComplete.length===0) { setChallenges(list); return; }
+    if (toExpire.length===0 && toConflictCancel.length===0 && toPrune.length===0) { setChallenges(list); return; }
     const expireIds = new Set(toExpire.map(c=>c.id));
     const conflictIds = new Set(toConflictCancel.map(c=>c.id));
-    const completeIds = new Set(toComplete.map(c=>c.id));
     const pruneMap = new Map(toPrune.map(p=>[p.c.id, p]));
     const updated = list.map(c=>{
       if (expireIds.has(c.id)) return {...c, status:'expired'};
       if (conflictIds.has(c.id)) return {...c, status:'cancelled', cancelledAt:Date.now(), cancelReason:'conflict'};
-      if (completeIds.has(c.id)) return {...c, status:'completed', completedAt:Date.now()};
       if (pruneMap.has(c.id)) {
         const {remaining} = pruneMap.get(c.id);
         const proposals = [...(c.proposals||[])];
@@ -1273,22 +1271,6 @@ function App() {
       }).catch(()=>{});
     }
     showToast('Défi annulé');
-  }
-
-  /* Supprime un défi de l'historique, mais uniquement pour la personne qui clique : on stocke son
-     userId dans "hiddenFor" plutôt que d'effacer le document, pour que l'autre participant continue
-     à le voir dans son propre historique. */
-  async function deleteChallengeFromHistory(challenge) {
-    const myId = makeUserId(profile);
-    if (!myId) { showToast('Profil incomplet.', 'error'); return; }
-    let fresh;
-    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
-    const current = fresh.find(c=>c.id===challenge.id) || challenge;
-    const hiddenFor = Array.from(new Set([...(current.hiddenFor||[]), myId]));
-    const updated = fresh.map(c=>c.id===challenge.id?{...c,hiddenFor}:c);
-    try{ await challengesSave(updated); }catch{ showToast('Erreur, réessayez.', 'error'); return; }
-    setChallenges(updated);
-    showToast('Défi supprimé de votre historique');
   }
 
   /* Complète automatiquement /profiles/{userId} (nom, adresse, email) pour la personne qui accepte un défi —
@@ -1570,8 +1552,7 @@ function App() {
         challenges=${challenges} profile=${profile}
         onBack=${()=>setView('main')}
         onCreateChallenge=${()=>setModal('challenge-create')}
-        onOpenChallenge=${c=>openChallenge(c)}
-        onDeleteChallenge=${c=>deleteChallengeFromHistory(c)}/>`
+        onOpenChallenge=${c=>openChallenge(c)}/>`
     :view==='admin-panel' ? html`<${AdminPanelView}
         popup=${popup} journal=${journal} contactCfg=${contactCfg}
         onSavePopup=${async(p)=>{await popupSave(p);setPopup(p);showToast('Popup sauvegardée');}}
@@ -1905,9 +1886,8 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
 /* ============================================================
    DÉFIS — UI
    ============================================================ */
-function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge,onDeleteChallenge}) {
-  const myId = makeUserId(profile);
-  const mine = useMemo(()=>challenges.filter(c=>challengeMyRole(c, profile)!==null && !(c.hiddenFor||[]).includes(myId)), [challenges, profile, myId]);
+function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge}) {
+  const mine = useMemo(()=>challenges.filter(c=>challengeMyRole(c, profile)!==null), [challenges, profile]);
   const isMyTurn = c => {
     if(c.status!=='pending') return false;
     const role = challengeMyRole(c, profile);
@@ -1919,23 +1899,22 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
     const ka=(a.acceptedSlot?.date||'')+(a.acceptedSlot?.startTime||''), kb=(b.acceptedSlot?.date||'')+(b.acceptedSlot?.startTime||'');
     return ka.localeCompare(kb);
   });
-  const history = mine.filter(c=>['completed','declined','expired','cancelled'].includes(c.status))
-    .sort((a,b)=>(b.completedAt||b.respondedAt||b.cancelledAt||b.createdAt)-(a.completedAt||a.respondedAt||a.cancelledAt||a.createdAt));
+  const history = mine.filter(c=>['declined','expired','cancelled'].includes(c.status))
+    .sort((a,b)=>(b.respondedAt||b.cancelledAt||b.createdAt)-(a.respondedAt||a.cancelledAt||a.createdAt));
 
-  const rowFor = (c, {onDelete}={}) => {
+  const rowFor = c => {
     const other = challengeOtherParty(c, profile);
     const initials = (other.name||'??').trim().split(' ').map(w=>w[0]).filter(Boolean).slice(0,2).join('').toUpperCase() || '?';
     const latest = latestProposal(c);
     let sub = '';
     if (c.status==='accepted' && c.acceptedSlot) sub = formatSlot(c.acceptedSlot);
-    else if (c.status==='completed' && c.acceptedSlot) sub = `Joué · ${formatSlot(c.acceptedSlot)}`;
     else if (c.status==='pending') sub = (latest.slots||[]).length>1 ? `${latest.slots.length} créneaux proposés` : formatSlot((latest.slots||[])[0]||{date:c.createdAt?dateKey(new Date(c.createdAt)):'',startTime:'',endTime:''});
     else if (c.status==='declined') sub = 'Défi refusé';
     else if (c.status==='expired') sub = "Aucun créneau n'a convenu à temps";
     else if (c.status==='cancelled') sub = 'Match annulé';
     const statusText = c.status==='pending' ? (isMyTurn(c)?'À répondre':'En attente')
-      : c.status==='accepted' ? 'Accepté' : c.status==='completed' ? 'Terminé' : c.status==='declined' ? 'Refusé' : c.status==='expired' ? 'Expiré' : 'Annulé';
-    const row = html`<button class="defi-row" style=${onDelete?'margin-bottom:0':''} onClick=${()=>onOpenChallenge(c)} key=${onDelete?undefined:c.id}>
+      : c.status==='accepted' ? 'Accepté' : c.status==='declined' ? 'Refusé' : c.status==='expired' ? 'Expiré' : 'Annulé';
+    return html`<button class="defi-row" onClick=${()=>onOpenChallenge(c)} key=${c.id}>
       <div class="defi-avatar">${initials}</div>
       <div style="flex:1;min-width:0;text-align:left">
         <div style="font-weight:600;font-size:14px">${other.name||'Adversaire'}</div>
@@ -1943,15 +1922,6 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
       </div>
       <span class="defi-status ${c.status}">${statusText}</span>
     </button>`;
-    if (!onDelete) return row;
-    return html`<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px" key=${c.id}>
-      ${row}
-      <button type="button" title="Supprimer de l'historique" aria-label="Supprimer de l'historique"
-        style="flex-shrink:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--muted)"
-        onClick=${e=>{e.stopPropagation();onDelete(c);}}>
-        <${Icon} name="trash" size=${15}/>
-      </button>
-    </div>`;
   };
 
   return html`<div class="view-page">
@@ -1965,19 +1935,19 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
     <div style="padding:0 20px">
       ${toRespond.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">À répondre · ${toRespond.length}</div>
-        ${toRespond.map(c=>rowFor(c))}
+        ${toRespond.map(rowFor)}
       </div>`}
       ${waiting.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">En attente</div>
-        ${waiting.map(c=>rowFor(c))}
+        ${waiting.map(rowFor)}
       </div>`}
       ${upcoming.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">À venir</div>
-        ${upcoming.map(c=>rowFor(c))}
+        ${upcoming.map(rowFor)}
       </div>`}
       ${history.length>0 && html`<div style="margin-bottom:18px;opacity:.7">
         <div class="field-label">Historique</div>
-        ${history.map(c=>rowFor(c,{onDelete:onDeleteChallenge}))}
+        ${history.map(rowFor)}
       </div>`}
       ${mine.length===0 && html`<div style="text-align:center;padding:40px 20px;color:var(--muted)">
         <p style="font-style:italic">Aucun défi pour l'instant.<br/>Lancez-en un depuis le bouton ci-dessus.</p>
@@ -2040,7 +2010,7 @@ function SlotPicker({bookings,selectedSlots,onChange}) {
       <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)"><span>${COURT_OPEN_HOUR}h</span><span>${COURT_CLOSE_HOUR}h</span></div>
     </div>
 
-    <p style="font-size:12px;color:var(--muted);font-style:italic;margin:0 0 10px">Sélectionnez les créneaux libres pour les ajouter à votre proposition.</p>
+    <p style="font-size:12px;color:var(--muted);font-style:italic;margin:0 0 10px">Touchez un créneau libre pour l'ajouter à votre proposition.</p>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
       ${activeSlots.map(s=>{
@@ -2188,7 +2158,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
   async function handlePropose(){ if(counterSlots.length===0) return; setBusy(true); await onPropose(counterSlots); setBusy(false); }
   async function handleCancelChallenge(){ setCancelling(true); await onCancelChallenge(); setCancelling(false); }
 
-  const statusText = {pending:'En attente', accepted:'Accepté', completed:'Terminé', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
+  const statusText = {pending:'En attente', accepted:'Accepté', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
 
   return html`<${Modal} onClose=${onClose}>
     <div class="modal-header">
@@ -2202,10 +2172,6 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
             <div>Défi accepté ! ${challenge.acceptedSlot?formatSlot(challenge.acceptedSlot):''} — le court est réservé pour vous deux.</div>
           </div>
           ${myRole && html`<button type="button" onClick=${onCancelAccepted} style="display:block;width:100%;text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:12px 4px 4px">Annuler ce match</button>`}
-        </div>`
-      : challenge.status==='completed' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
-          <${Icon} name="check" size=${16}/>
-          <div>Ce match a eu lieu${challenge.acceptedSlot?`, le ${formatSlot(challenge.acceptedSlot)}`:''}.</div>
         </div>`
       : challenge.status!=='pending' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
           <${Icon} name="alert" size=${16}/>
@@ -2310,6 +2276,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
   // Résas à venir de la même personne (hors défis), pour la règle de priorité : si ce nouveau
   // créneau n'est pas le plus proche dans le temps parmi ses résas, il sera non-prioritaire.
   const personFutureBookings=useMemo(()=>existingBookings.filter(b=>!b.challengeId && sameResident(b,profile)),[existingBookings,profile]);
+  const atLimit=personFutureBookings.length>=MAX_ACTIVE_BOOKINGS_PER_PERSON;
   const earlierPersonBooking=useMemo(()=>{
     const candidateKey=date+startTime;
     return personFutureBookings
@@ -2344,6 +2311,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
 
   async function confirm() {
     setError(null);
+    if(atLimit){setError(`Vous avez déjà ${MAX_ACTIVE_BOOKINGS_PER_PERSON} réservations actives à venir. Pour en faire une nouvelle, annulez d'abord l'une de vos réservations existantes.`);return;}
     if(conflict){setError('Ce créneau est déjà réservé.');return;}
     if(consecutiveConflict){setError('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.');return;}
     // Si pas d'email connu, demander avant de confirmer
@@ -2400,10 +2368,11 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
         <span style="font-family:'Fraunces',Georgia,serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:600">${endTime}</span>
       </div>
 
-      ${conflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Conflit avec <strong>${conflict.name}</strong> (${conflict.startTime}–${conflict.endTime}).</div></div>`}
-      ${!conflict&&consecutiveConflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Désolé, vous ne pouvez pas réserver deux créneaux à la suite.</div></div>`}
-      ${!conflict&&!consecutiveConflict&&sameDayFamilyNotice&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà réservé le terrain aujourd'hui. En cas de demande d'une autre famille, celle ci sera prioritaire.</div></div>`}
-      ${!conflict&&!consecutiveConflict&&earlierPersonBooking&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà une réservation à venir <strong>${niceDateLabel(new Date(earlierPersonBooking.date+'T00:00:00'))} à ${earlierPersonBooking.startTime}</strong>. Ce nouveau créneau sera donc <strong>non-prioritaire</strong> : n'importe quel résident pourra le réserver à votre place tant que votre réservation précédente n'est pas terminée.</div></div>`}
+      ${atLimit&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà ${MAX_ACTIVE_BOOKINGS_PER_PERSON} réservations actives à venir. Pour en faire une nouvelle, annulez d'abord l'une de vos réservations existantes.</div></div>`}
+      ${!atLimit&&conflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Conflit avec <strong>${conflict.name}</strong> (${conflict.startTime}–${conflict.endTime}).</div></div>`}
+      ${!atLimit&&!conflict&&consecutiveConflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Désolé, vous ne pouvez pas réserver deux créneaux à la suite.</div></div>`}
+      ${!atLimit&&!conflict&&!consecutiveConflict&&sameDayFamilyNotice&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà réservé le terrain aujourd'hui. En cas de demande d'une autre famille, celle ci sera prioritaire.</div></div>`}
+      ${!atLimit&&!conflict&&!consecutiveConflict&&earlierPersonBooking&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà une réservation à venir <strong>${niceDateLabel(new Date(earlierPersonBooking.date+'T00:00:00'))} à ${earlierPersonBooking.startTime}</strong>. Ce nouveau créneau sera donc <strong>non-prioritaire</strong> : n'importe quel résident pourra le réserver à votre place tant que votre réservation précédente n'est pas terminée.</div></div>`}
       ${error&&html`<p class="text-error">${error}</p>`}
 
       ${emailStep&&!profile.email&&html`<div style="background:var(--bg);border-radius:14px;padding:14px;margin-bottom:14px">
@@ -2414,7 +2383,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
 
       <div class="modal-actions">
         <button class="btn btn-secondary" onClick=${onClose}>Annuler</button>
-        <button class="btn btn-primary" disabled=${!!conflict||!!consecutiveConflict||saving||(emailStep&&!profile.email&&!emailInput.includes('@'))} onClick=${confirm}>
+        <button class="btn btn-primary" disabled=${!!atLimit||!!conflict||!!consecutiveConflict||saving||(emailStep&&!profile.email&&!emailInput.includes('@'))} onClick=${confirm}>
           ${saving?html`<span class="spinner" style="width:14px;height:14px;border-width:2px"></span>`:html`<${Icon} name="check" size=${16}/>`}
           ${emailStep&&!profile.email?'Confirmer avec email':'Confirmer'}
         </button>
