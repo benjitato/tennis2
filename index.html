@@ -76,7 +76,6 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .booking-email{font-size:11px;color:var(--clay-deep);margin-top:2px;font-style:italic}
 .booking-end{font-size:11px;color:var(--muted);margin-top:3px}
 .doublon-badge{display:inline-flex;align-items:center;gap:3px;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
-.multi-badge{display:inline-flex;align-items:center;gap:3px;background:var(--strip);color:var(--muted);font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
 .priority-badge{display:inline-flex;align-items:center;gap:4px;background:var(--clay-soft);color:var(--clay-deep);font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.03em;border:1px dashed var(--clay)}
 .take-btn{font-size:10px;background:var(--clay);color:var(--paper);padding:3px 9px;border-radius:999px;font-weight:700;font-family:inherit;white-space:nowrap;border:none;cursor:pointer}
    .booking-row.ongoing{background:rgba(45,74,55,.07);border-radius:12px}
@@ -1792,15 +1791,6 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
   // Check doublons for this day
   const dayDoublonAddrs=new Set(doublons.filter(d=>d.date===day.key).map(d=>d.address));
 
-  // Foyers ayant plusieurs résas actives ce jour-là (consécutives ou non)
-  const householdCounts={};
-  for(const bk of bookings){
-    if(isPastBooking(bk)) continue;
-    const addr=normalizeStr(bk.address||'');
-    if(!addr) continue;
-    householdCounts[addr]=(householdCounts[addr]||0)+1;
-  }
-
   const ticks=[];
   for(let i=0;i<=COURT_CLOSE_HOUR-COURT_OPEN_HOUR;i++){
     const left=(i*60/total)*100, hour=COURT_OPEN_HOUR+i;
@@ -1838,7 +1828,6 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
             ${bookings.map(b=>{
               const mine=sameResident(b,profile)||isDefiParticipant(b);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
-              const isMultiResa=!isPastBooking(b)&&householdCounts[normalizeStr(b.address||'')]>=2;
               const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''} ${isPastBooking(b)?'past-booking':''}" key=${b.id}>
                 <div class="booking-time">
                   <div class="booking-time-h">${b.startTime}</div>
@@ -1848,7 +1837,6 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
                 <div class="booking-info">
                 <div class="booking-name">
                     <span>${mine?html`<em style="font-style:normal">Vous</em>`:b.name}</span>
-                    ${isMultiResa&&html`<span class="multi-badge" title="Ce foyer a plusieurs réservations aujourd'hui">Résa multiple</span>`}
                     ${isNonPriority(b)&&html`<span class="priority-badge" title="Cette personne a déjà une réservation à venir : n'importe quel résident peut réserver ce créneau à sa place">⏳ Non prioritaire</span>`}
                     ${isDoublon&&html`<span class="doublon-badge">⚠️ Doublon</span>`}
                     ${ongoing&&html`<span style="font-size:10px;background:var(--green);color:var(--paper);padding:2px 7px;border-radius:999px;font-weight:700">🎾 En cours</span>`}
