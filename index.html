@@ -366,14 +366,14 @@ const sameResident = (b, profile) => normalizeStr(b.name||'')===normalizeStr(pro
 const sameHousehold = (b, profile) => !!normalizeStr(b.address||'') && normalizeStr(b.address||'')===normalizeStr(profileAddr(profile));
 
 /* ── Priorité de réservation ──
-   Parmi les résas actives à venir (pas encore commencées) d'une même personne (nom+adresse),
-   hors défis (toujours prioritaires, exclus dans les deux sens), la plus proche dans le temps
-   reste prioritaire ; toutes les suivantes deviennent non-prioritaires (n'importe quel résident
-   peut alors les reprendre). Recalculé à chaque rendu à partir de la liste de résas fournie :
-   pas de champ stocké, donc la transition (résa passée / annulée) est automatique. */
+   Parmi les résas actives non terminées (isPastBooking = false, donc y compris une résa "en
+   cours") d'une même personne (nom+adresse), hors défis (toujours prioritaires, exclus dans les
+   deux sens), la plus proche dans le temps reste prioritaire ; toutes les suivantes deviennent
+   non-prioritaires (n'importe quel résident peut alors les reprendre) tant que cette première
+   résa n'est pas terminée. Recalculé à chaque rendu à partir de la liste de résas fournie : pas
+   de champ stocké, donc la transition (résa terminée / annulée) est automatique. */
 function computeNonPriorityIds(bookingsList) {
-  const now = new Date();
-  const upcoming = (bookingsList||[]).filter(b=>!b.cancelled && !b.challengeId && new Date(`${b.date}T${b.startTime}:00`) > now);
+  const upcoming = (bookingsList||[]).filter(b=>!b.cancelled && !b.challengeId && !isPastBooking(b));
   const byPerson = {};
   upcoming.forEach(b=>{
     const nameKey = normalizeStr(b.name||'');
@@ -2372,7 +2372,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
       ${conflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Conflit avec <strong>${conflict.name}</strong> (${conflict.startTime}–${conflict.endTime}).</div></div>`}
       ${!conflict&&consecutiveConflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Désolé, vous ne pouvez pas réserver deux créneaux à la suite.</div></div>`}
       ${!conflict&&!consecutiveConflict&&sameDayFamilyNotice&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà réservé le terrain aujourd'hui. En cas de demande d'une autre famille, celle ci sera prioritaire.</div></div>`}
-      ${!conflict&&!consecutiveConflict&&earlierPersonBooking&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà une réservation à venir <strong>${niceDateLabel(new Date(earlierPersonBooking.date+'T00:00:00'))} à ${earlierPersonBooking.startTime}</strong>. Ce nouveau créneau sera donc <strong>non-prioritaire</strong> : n'importe quel résident pourra le réserver à votre place tant que votre réservation précédente n'a pas eu lieu.</div></div>`}
+      ${!conflict&&!consecutiveConflict&&earlierPersonBooking&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà une réservation à venir <strong>${niceDateLabel(new Date(earlierPersonBooking.date+'T00:00:00'))} à ${earlierPersonBooking.startTime}</strong>. Ce nouveau créneau sera donc <strong>non-prioritaire</strong> : n'importe quel résident pourra le réserver à votre place tant que votre réservation précédente n'est pas terminée.</div></div>`}
       ${error&&html`<p class="text-error">${error}</p>`}
 
       ${emailStep&&!profile.email&&html`<div style="background:var(--bg);border-radius:14px;padding:14px;margin-bottom:14px">
