@@ -245,7 +245,7 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .defi-status{font-size:10px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap;flex-shrink:0}
 .defi-status.pending{background:var(--clay-soft);color:var(--clay-deep)}
 .defi-status.accepted{background:#E3EBE4;color:var(--green)}
-.defi-status.declined,.defi-status.expired,.defi-status.cancelled{background:var(--strip);color:var(--muted)}
+.defi-status.completed,.defi-status.declined,.defi-status.expired,.defi-status.cancelled{background:var(--strip);color:var(--muted)}
 .defi-slot{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:14px;border:1px solid var(--line);margin-bottom:8px;width:100%;text-align:left;background:var(--paper)}
 .defi-slot.selected{border:2px solid var(--clay);background:rgba(184,74,44,.06)}
 .defi-slot.taken{opacity:.5}
@@ -1170,6 +1170,7 @@ function App() {
   /* ── Défis ── */
   async function checkChallengeExpirations(list, bookingsList) {
     const stillPending = (list||[]).filter(c=>c.status==='pending');
+    const stillAccepted = (list||[]).filter(c=>c.status==='accepted');
     const toExpire = [], toConflictCancel = [], toPrune = [];
     for (const c of stillPending) {
       // Un défi malformé (ex : ancien enregistrement de test sans "proposals") ne doit pas
@@ -1189,13 +1190,23 @@ function App() {
         }
       }catch{}
     }
-    if (toExpire.length===0 && toConflictCancel.length===0 && toPrune.length===0) { setChallenges(list); return; }
+    // Un défi accepté dont le créneau retenu est passé devient "terminé" : il sort du badge
+    // "défi(s) programmé(s)" et de la section "À venir" pour rejoindre l'Historique.
+    const toComplete = [];
+    for (const c of stillAccepted) {
+      try{
+        if (c.acceptedSlot && isSlotPast(c.acceptedSlot)) toComplete.push(c);
+      }catch{}
+    }
+    if (toExpire.length===0 && toConflictCancel.length===0 && toPrune.length===0 && toComplete.length===0) { setChallenges(list); return; }
     const expireIds = new Set(toExpire.map(c=>c.id));
     const conflictIds = new Set(toConflictCancel.map(c=>c.id));
+    const completeIds = new Set(toComplete.map(c=>c.id));
     const pruneMap = new Map(toPrune.map(p=>[p.c.id, p]));
     const updated = list.map(c=>{
       if (expireIds.has(c.id)) return {...c, status:'expired'};
       if (conflictIds.has(c.id)) return {...c, status:'cancelled', cancelledAt:Date.now(), cancelReason:'conflict'};
+      if (completeIds.has(c.id)) return {...c, status:'completed', completedAt:Date.now()};
       if (pruneMap.has(c.id)) {
         const {remaining} = pruneMap.get(c.id);
         const proposals = [...(c.proposals||[])];
@@ -1262,6 +1273,22 @@ function App() {
       }).catch(()=>{});
     }
     showToast('Défi annulé');
+  }
+
+  /* Supprime un défi de l'historique, mais uniquement pour la personne qui clique : on stocke son
+     userId dans "hiddenFor" plutôt que d'effacer le document, pour que l'autre participant continue
+     à le voir dans son propre historique. */
+  async function deleteChallengeFromHistory(challenge) {
+    const myId = makeUserId(profile);
+    if (!myId) { showToast('Profil incomplet.', 'error'); return; }
+    let fresh;
+    try{ fresh = await challengesGet(); }catch{ fresh = challenges; }
+    const current = fresh.find(c=>c.id===challenge.id) || challenge;
+    const hiddenFor = Array.from(new Set([...(current.hiddenFor||[]), myId]));
+    const updated = fresh.map(c=>c.id===challenge.id?{...c,hiddenFor}:c);
+    try{ await challengesSave(updated); }catch{ showToast('Erreur, réessayez.', 'error'); return; }
+    setChallenges(updated);
+    showToast('Défi supprimé de votre historique');
   }
 
   /* Complète automatiquement /profiles/{userId} (nom, adresse, email) pour la personne qui accepte un défi —
@@ -1543,7 +1570,8 @@ function App() {
         challenges=${challenges} profile=${profile}
         onBack=${()=>setView('main')}
         onCreateChallenge=${()=>setModal('challenge-create')}
-        onOpenChallenge=${c=>openChallenge(c)}/>`
+        onOpenChallenge=${c=>openChallenge(c)}
+        onDeleteChallenge=${c=>deleteChallengeFromHistory(c)}/>`
     :view==='admin-panel' ? html`<${AdminPanelView}
         popup=${popup} journal=${journal} contactCfg=${contactCfg}
         onSavePopup=${async(p)=>{await popupSave(p);setPopup(p);showToast('Popup sauvegardée');}}
@@ -1877,8 +1905,9 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
 /* ============================================================
    DÉFIS — UI
    ============================================================ */
-function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge}) {
-  const mine = useMemo(()=>challenges.filter(c=>challengeMyRole(c, profile)!==null), [challenges, profile]);
+function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChallenge,onDeleteChallenge}) {
+  const myId = makeUserId(profile);
+  const mine = useMemo(()=>challenges.filter(c=>challengeMyRole(c, profile)!==null && !(c.hiddenFor||[]).includes(myId)), [challenges, profile, myId]);
   const isMyTurn = c => {
     if(c.status!=='pending') return false;
     const role = challengeMyRole(c, profile);
@@ -1890,22 +1919,23 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
     const ka=(a.acceptedSlot?.date||'')+(a.acceptedSlot?.startTime||''), kb=(b.acceptedSlot?.date||'')+(b.acceptedSlot?.startTime||'');
     return ka.localeCompare(kb);
   });
-  const history = mine.filter(c=>['declined','expired','cancelled'].includes(c.status))
-    .sort((a,b)=>(b.respondedAt||b.cancelledAt||b.createdAt)-(a.respondedAt||a.cancelledAt||a.createdAt));
+  const history = mine.filter(c=>['completed','declined','expired','cancelled'].includes(c.status))
+    .sort((a,b)=>(b.completedAt||b.respondedAt||b.cancelledAt||b.createdAt)-(a.completedAt||a.respondedAt||a.cancelledAt||a.createdAt));
 
-  const rowFor = c => {
+  const rowFor = (c, {onDelete}={}) => {
     const other = challengeOtherParty(c, profile);
     const initials = (other.name||'??').trim().split(' ').map(w=>w[0]).filter(Boolean).slice(0,2).join('').toUpperCase() || '?';
     const latest = latestProposal(c);
     let sub = '';
     if (c.status==='accepted' && c.acceptedSlot) sub = formatSlot(c.acceptedSlot);
+    else if (c.status==='completed' && c.acceptedSlot) sub = `Joué · ${formatSlot(c.acceptedSlot)}`;
     else if (c.status==='pending') sub = (latest.slots||[]).length>1 ? `${latest.slots.length} créneaux proposés` : formatSlot((latest.slots||[])[0]||{date:c.createdAt?dateKey(new Date(c.createdAt)):'',startTime:'',endTime:''});
     else if (c.status==='declined') sub = 'Défi refusé';
     else if (c.status==='expired') sub = "Aucun créneau n'a convenu à temps";
     else if (c.status==='cancelled') sub = 'Match annulé';
     const statusText = c.status==='pending' ? (isMyTurn(c)?'À répondre':'En attente')
-      : c.status==='accepted' ? 'Accepté' : c.status==='declined' ? 'Refusé' : c.status==='expired' ? 'Expiré' : 'Annulé';
-    return html`<button class="defi-row" onClick=${()=>onOpenChallenge(c)} key=${c.id}>
+      : c.status==='accepted' ? 'Accepté' : c.status==='completed' ? 'Terminé' : c.status==='declined' ? 'Refusé' : c.status==='expired' ? 'Expiré' : 'Annulé';
+    const row = html`<button class="defi-row" style=${onDelete?'margin-bottom:0':''} onClick=${()=>onOpenChallenge(c)} key=${onDelete?undefined:c.id}>
       <div class="defi-avatar">${initials}</div>
       <div style="flex:1;min-width:0;text-align:left">
         <div style="font-weight:600;font-size:14px">${other.name||'Adversaire'}</div>
@@ -1913,6 +1943,15 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
       </div>
       <span class="defi-status ${c.status}">${statusText}</span>
     </button>`;
+    if (!onDelete) return row;
+    return html`<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px" key=${c.id}>
+      ${row}
+      <button type="button" title="Supprimer de l'historique" aria-label="Supprimer de l'historique"
+        style="flex-shrink:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:10px;color:var(--muted)"
+        onClick=${e=>{e.stopPropagation();onDelete(c);}}>
+        <${Icon} name="trash" size=${15}/>
+      </button>
+    </div>`;
   };
 
   return html`<div class="view-page">
@@ -1926,19 +1965,19 @@ function ChallengesView({challenges,profile,onBack,onCreateChallenge,onOpenChall
     <div style="padding:0 20px">
       ${toRespond.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">À répondre · ${toRespond.length}</div>
-        ${toRespond.map(rowFor)}
+        ${toRespond.map(c=>rowFor(c))}
       </div>`}
       ${waiting.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">En attente</div>
-        ${waiting.map(rowFor)}
+        ${waiting.map(c=>rowFor(c))}
       </div>`}
       ${upcoming.length>0 && html`<div style="margin-bottom:18px">
         <div class="field-label">À venir</div>
-        ${upcoming.map(rowFor)}
+        ${upcoming.map(c=>rowFor(c))}
       </div>`}
       ${history.length>0 && html`<div style="margin-bottom:18px;opacity:.7">
         <div class="field-label">Historique</div>
-        ${history.map(rowFor)}
+        ${history.map(c=>rowFor(c,{onDelete:onDeleteChallenge}))}
       </div>`}
       ${mine.length===0 && html`<div style="text-align:center;padding:40px 20px;color:var(--muted)">
         <p style="font-style:italic">Aucun défi pour l'instant.<br/>Lancez-en un depuis le bouton ci-dessus.</p>
@@ -2149,7 +2188,7 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
   async function handlePropose(){ if(counterSlots.length===0) return; setBusy(true); await onPropose(counterSlots); setBusy(false); }
   async function handleCancelChallenge(){ setCancelling(true); await onCancelChallenge(); setCancelling(false); }
 
-  const statusText = {pending:'En attente', accepted:'Accepté', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
+  const statusText = {pending:'En attente', accepted:'Accepté', completed:'Terminé', declined:'Refusé', expired:'Expiré', cancelled:'Annulé'}[challenge.status] || challenge.status;
 
   return html`<${Modal} onClose=${onClose}>
     <div class="modal-header">
@@ -2163,6 +2202,10 @@ function ChallengeDetailModal({challenge,profile,bookings,onClose,onAccept,onDec
             <div>Défi accepté ! ${challenge.acceptedSlot?formatSlot(challenge.acceptedSlot):''} — le court est réservé pour vous deux.</div>
           </div>
           ${myRole && html`<button type="button" onClick=${onCancelAccepted} style="display:block;width:100%;text-align:center;font-size:12px;color:var(--muted);text-decoration:underline;background:none;border:none;font-family:inherit;cursor:pointer;padding:12px 4px 4px">Annuler ce match</button>`}
+        </div>`
+      : challenge.status==='completed' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
+          <${Icon} name="check" size=${16}/>
+          <div>Ce match a eu lieu${challenge.acceptedSlot?`, le ${formatSlot(challenge.acceptedSlot)}`:''}.</div>
         </div>`
       : challenge.status!=='pending' ? html`<div class="notice" style="background:var(--strip);color:var(--muted)">
           <${Icon} name="alert" size=${16}/>
