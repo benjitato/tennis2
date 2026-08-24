@@ -76,6 +76,9 @@ select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.o
 .booking-email{font-size:11px;color:var(--clay-deep);margin-top:2px;font-style:italic}
 .booking-end{font-size:11px;color:var(--muted);margin-top:3px}
 .doublon-badge{display:inline-flex;align-items:center;gap:3px;background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
+.multi-badge{display:inline-flex;align-items:center;gap:3px;background:var(--strip);color:var(--muted);font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
+.priority-badge{display:inline-flex;align-items:center;gap:4px;background:var(--clay-soft);color:var(--clay-deep);font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.03em;border:1px dashed var(--clay)}
+.take-btn{font-size:10px;background:var(--clay);color:var(--paper);padding:3px 9px;border-radius:999px;font-weight:700;font-family:inherit;white-space:nowrap;border:none;cursor:pointer}
    .booking-row.ongoing{background:rgba(45,74,55,.07);border-radius:12px}
    .booking-row.past-booking{opacity:.4}
 .cancel-btn{padding:8px;border-radius:8px;color:var(--muted);flex-shrink:0}
@@ -360,6 +363,32 @@ const profileAddr = p => p?.addressNumber&&p?.addressStreet ? `${p.addressNumber
 const profileFullName = p => p?.prenom && p?.nom ? `${p.prenom} ${p.nom}` : (p?.name||'');
 const normalizeStr = s => s ? s.toLowerCase().trim().normalize('NFD').replace(/[̀-ͯ]/g,'') : '';
 const sameResident = (b, profile) => normalizeStr(b.name||'')===normalizeStr(profileFullName(profile)) && normalizeStr(b.address||'')===normalizeStr(profileAddr(profile));
+const sameHousehold = (b, profile) => !!normalizeStr(b.address||'') && normalizeStr(b.address||'')===normalizeStr(profileAddr(profile));
+
+/* ── Priorité de réservation ──
+   Parmi les résas actives à venir (pas encore commencées) d'une même personne (nom+adresse),
+   hors défis (toujours prioritaires, exclus dans les deux sens), la plus proche dans le temps
+   reste prioritaire ; toutes les suivantes deviennent non-prioritaires (n'importe quel résident
+   peut alors les reprendre). Recalculé à chaque rendu à partir de la liste de résas fournie :
+   pas de champ stocké, donc la transition (résa passée / annulée) est automatique. */
+function computeNonPriorityIds(bookingsList) {
+  const now = new Date();
+  const upcoming = (bookingsList||[]).filter(b=>!b.cancelled && !b.challengeId && new Date(`${b.date}T${b.startTime}:00`) > now);
+  const byPerson = {};
+  upcoming.forEach(b=>{
+    const nameKey = normalizeStr(b.name||'');
+    if(!nameKey) return;
+    const key = nameKey+'|'+normalizeStr(b.address||'');
+    (byPerson[key]=byPerson[key]||[]).push(b);
+  });
+  const result = new Set();
+  Object.values(byPerson).forEach(list=>{
+    if(list.length<2) return;
+    list.sort((a,b)=>(a.date+a.startTime).localeCompare(b.date+b.startTime));
+    list.slice(1).forEach(b=>result.add(b.id));
+  });
+  return result;
+}
 const escapeHtml = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ============================================================
@@ -470,13 +499,22 @@ function detectDoublons(bookings) {
    COMPUTE STATS
    ============================================================ */
 function computeStats(allBookings, periodDays) {
-  const since = new Date(); since.setDate(since.getDate()-periodDays);
-  const sinceStr = dateKey(since);
-  const filtered = allBookings.filter(b => b.date >= sinceStr);
+  let filtered, effectiveDays;
+  if (periodDays>0) {
+    const since = new Date(); since.setDate(since.getDate()-periodDays);
+    const sinceStr = dateKey(since);
+    filtered = allBookings.filter(b => b.date >= sinceStr);
+    effectiveDays = periodDays;
+  } else {
+    // "Tout" : pas de filtre de date, l'occupation se calcule sur la durée réelle des données
+    filtered = allBookings;
+    const minDate = filtered.reduce((m,b)=>(!m||b.date<m)?b.date:m, null);
+    effectiveDays = minDate ? Math.max(1, Math.round((new Date()-new Date(`${minDate}T00:00:00`))/86400000)) : 1;
+  }
   const total = filtered.length;
   const avgDur = total>0 ? Math.round(filtered.reduce((s,b)=>s+durationMin(b.startTime,b.endTime),0)/total) : 0;
   const courtMinDay = (COURT_CLOSE_HOUR-COURT_OPEN_HOUR)*60;
-  const occupancy = Math.round((filtered.reduce((s,b)=>s+durationMin(b.startTime,b.endTime),0) / (courtMinDay*periodDays))*100);
+  const occupancy = Math.round((filtered.reduce((s,b)=>s+durationMin(b.startTime,b.endTime),0) / (courtMinDay*effectiveDays))*100);
   const hourMap={};
   for(const b of filtered){const h=parseInt(b.startTime.split(':')[0]);hourMap[h]=(hourMap[h]||0)+1;}
   const allHours=[];
@@ -988,6 +1026,8 @@ function App() {
     const emailToUse = emailForBooking || profile.email || '';
     const candidate={id:uid(),name:profileFullName(profile),address:profileAddr(profile),email:emailToUse,date,startTime,endTime,createdAt:Date.now()};
     if(freshActive.some(b=>overlaps(b,candidate))) throw new Error('Ce créneau est déjà réservé.');
+    const sameFamilySameDay=freshActive.filter(b=>b.date===date&&sameHousehold(b,profile));
+    if(sameFamilySameDay.some(b=>b.endTime===startTime||b.startTime===endTime)) throw new Error('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.');
     const updated=[...fresh,candidate];
     try{await pantrySave(updated);}catch(e){throw new Error('Écriture refusée ('+e.message+')');}
     setBookings(updated);
@@ -1050,6 +1090,46 @@ function App() {
       }
     }
     showToast('Réservation annulée');
+  }
+
+  // Reprise d'un créneau non-prioritaire par un autre résident : annule la résa existante
+  // et crée directement la nouvelle à la place, puis prévient par email la personne évincée.
+  async function takeNonPriorityBooking(booking) {
+    if(!profile.email){showToast("Ajoutez votre email dans Mon compte avant de reprendre un créneau",'error');return;}
+    let fresh;
+    try{fresh=((await pantryGet()).bookings||[]).filter(Boolean);}catch{showToast('Lecture impossible','error');return;}
+    const target=fresh.find(b=>b.id===booking.id && !b.cancelled);
+    if(!target){showToast("Ce créneau n'est plus disponible.",'error');return;}
+    // Re-vérification anti-course : le créneau doit toujours être non-prioritaire au moment du clic
+    // (ex. la résa précédente de son titulaire a pu passer entre-temps, ou être annulée).
+    if(!computeNonPriorityIds(fresh.filter(b=>!b.cancelled)).has(target.id)){
+      showToast('Ce créneau est redevenu prioritaire, vous ne pouvez plus le reprendre.','error');
+      return;
+    }
+    // Même garde-fou anti-contournement que createBooking : pas deux créneaux à la suite pour le foyer.
+    const takerSameDay=fresh.filter(b=>!b.cancelled && b.id!==target.id && b.date===target.date && sameHousehold(b,profile));
+    if(takerSameDay.some(b=>b.endTime===target.startTime||b.startTime===target.endTime)){
+      showToast('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.','error');
+      return;
+    }
+    const newBooking={id:uid(),name:profileFullName(profile),address:profileAddr(profile),email:profile.email||'',date:target.date,startTime:target.startTime,endTime:target.endTime,createdAt:Date.now()};
+    const updated=fresh.map(b=>b.id===target.id?{...b,cancelled:true,cancelledAt:Date.now(),cancelledReason:'priority-taken'}:b).concat([newBooking]);
+    try{await pantrySave(updated);}catch{showToast('Réservation impossible','error');return;}
+    setBookings(updated);
+    recheckChallengeConflicts(updated.filter(b=>!b.cancelled));
+    if(target.email){
+      sendEmail({
+        to: target.email,
+        subject: 'Réservation annulée — Tennis Château Rouge',
+        html: mailShell({
+          badgeColor: MAIL_NEG, badgeLabel: 'Réservation annulée',
+          headline: `Bonjour ${escapeHtml(firstWord(target.name))}`,
+          bodyHtml: `Votre réservation n'était pas prioritaire car vous en aviez déjà une à venir. Un autre résident a souhaité ce créneau : votre réservation a donc été annulée.<br><br>Vous pouvez réserver un autre créneau à tout moment depuis l'application.`,
+          scoreboardsHtml: mailScoreboard(new Date(target.date+'T00:00:00'), target.startTime, target.endTime)
+        })
+      }).catch(()=>{});
+    }
+    showToast(`Réservation effectuée à la place de ${target.name}`);
   }
 
   async function joinWaitlist(booking) {
@@ -1402,6 +1482,8 @@ function App() {
   }
 
   const activeBookings = useMemo(()=>bookings.filter(b=>!b.cancelled), [bookings]);
+  const nonPriorityIds = useMemo(()=>computeNonPriorityIds(activeBookings), [activeBookings]);
+  const isNonPriority = b=>nonPriorityIds.has(b.id);
 
   const days = useMemo(()=>{
     const out=[],base=startOfDay(new Date());
@@ -1489,17 +1571,19 @@ function App() {
         onOpenStatsTable=${()=>setModal('stats-table')}
         onViewHousehold=${h=>setView({type:'household',household:h})}/>`
     :view?.type==='neighbor' ? html`<${NeighborView} neighbor=${view.neighbor} bookings=${activeBookings} isAdmin=${isAdmin} onBack=${()=>setView('stats')}/>`
-    :view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${activeBookings} onBack=${()=>setView('stats')}/>`
+    :view?.type==='household' ? html`<${HouseholdView} household=${view.household} bookings=${activeBookings} period=${period} onBack=${()=>setView('stats')}/>`
     :view?.type==='weekday'  ? html`<${WeekdayView} weekday=${view.weekday} period=${period} bookings=${activeBookings} onBack=${()=>setView('stats')}/>`
     : html`<${MainView} days=${days} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} annoncesCount=${annoncesCount}
         waitlist=${waitlist} meteo=${meteo}
         canCancel=${canCancel}
         isDefiParticipant=${isDefiParticipant}
         getDefiOpponentName=${getDefiOpponentName}
+        isNonPriority=${isNonPriority}
         onRequestCancel=${b=>setModal({type:'cancel',booking:b})}
         onBook=${pf=>setModal({type:'booking',prefill:pf||null})}
         onRequestWaitlist=${b=>setModal({type:'waitlist-join',booking:b})}
         onLeaveWaitlist=${b=>setModal({type:'waitlist-leave',booking:b})}
+        onRequestTake=${b=>setModal({type:'take-priority',booking:b})}
         onAdminToggle=${()=>isAdmin?logoutAdmin():setModal('admin')}
         onOpenReglement=${()=>setModal('reglement')}
         onOpenJournal=${()=>setModal('journal')}
@@ -1577,6 +1661,12 @@ function App() {
       confirmLabel="Se retirer" tone="danger"
       onConfirm=${async()=>{await leaveWaitlist(modal.booking);setModal(null);}}
       onCancel=${()=>setModal(null)}/>`}
+    ${modal?.type==='take-priority' && html`<${ConfirmModal}
+      title="Réserver à sa place ?"
+      description=${`Ce créneau est actuellement réservé par ${modal.booking.name}, mais il n'est pas prioritaire (${longDate(new Date(modal.booking.date+'T00:00:00'))} · ${modal.booking.startTime}–${modal.booking.endTime}). Si vous confirmez, sa réservation sera annulée et remplacée par la vôtre : ${modal.booking.name} en sera informé(e) par email.`}
+      confirmLabel="Réserver à sa place" tone="primary"
+      onConfirm=${async()=>{await takeNonPriorityBooking(modal.booking);setModal(null);}}
+      onCancel=${()=>setModal(null)}/>`}
     ${modal==='contact' && html`<${ContactModal} contactCfg=${contactCfg} onClose=${()=>setModal(null)}/>`}
     ${modal==='journal' && html`<${JournalModal} journal=${journal} onClose=${()=>setModal(null)}/>`}
     ${showPopup&&popup&&html`<${PopupNouveautesModal} popup=${popup} onClose=${()=>{
@@ -1631,7 +1721,7 @@ function Header({profile,isAdmin,view,onEditProfile,onPersonalStats,onAdminToggl
 /* ============================================================
    MAIN VIEW
    ============================================================ */
-function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays,onOpenChallenges,challengesPendingCount,challengesWaitingCount,challengesScheduledCount}) {
+function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,isNonPriority,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onRequestTake,onAdminToggle,onOpenReglement,onOpenJournal,onOpenContact,onMoreDays,onOpenChallenges,challengesPendingCount,challengesWaitingCount,challengesScheduledCount}) {
   const today=new Date();
   return html`<div>
     <section class="hero">
@@ -1661,8 +1751,8 @@ function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,ca
     </section>
     <div class="day-list">
       ${days.map(d=>html`<${DayCard} key=${d.key} day=${d} profile=${profile} isAdmin=${isAdmin} doublons=${doublons} waitlist=${waitlist} meteo=${meteo}
-        canCancel=${canCancel} isDefiParticipant=${isDefiParticipant} getDefiOpponentName=${getDefiOpponentName}
-        onRequestCancel=${onRequestCancel} onBook=${pf=>onBook(pf)} onRequestWaitlist=${onRequestWaitlist} onLeaveWaitlist=${onLeaveWaitlist}/>`)}
+        canCancel=${canCancel} isDefiParticipant=${isDefiParticipant} getDefiOpponentName=${getDefiOpponentName} isNonPriority=${isNonPriority}
+        onRequestCancel=${onRequestCancel} onBook=${pf=>onBook(pf)} onRequestWaitlist=${onRequestWaitlist} onLeaveWaitlist=${onLeaveWaitlist} onRequestTake=${onRequestTake}/>`)}
     </div>
     <div style="display:flex;justify-content:center;margin:16px 20px 0">
       <button onClick=${onMoreDays} style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:10px 20px;border-radius:999px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer">
@@ -1690,7 +1780,7 @@ function MainView({days,profile,isAdmin,doublons,annoncesCount,waitlist,meteo,ca
 /* ============================================================
    DAY CARD
    ============================================================ */
-function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist}) {
+function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiParticipant,getDefiOpponentName,isNonPriority,onRequestCancel,onBook,onRequestWaitlist,onLeaveWaitlist,onRequestTake}) {
   const {date,bookings}=day;
   const total=(COURT_CLOSE_HOUR-COURT_OPEN_HOUR)*60;
   const past=isPastDay(date);
@@ -1701,6 +1791,15 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
 
   // Check doublons for this day
   const dayDoublonAddrs=new Set(doublons.filter(d=>d.date===day.key).map(d=>d.address));
+
+  // Foyers ayant plusieurs résas actives ce jour-là (consécutives ou non)
+  const householdCounts={};
+  for(const bk of bookings){
+    if(isPastBooking(bk)) continue;
+    const addr=normalizeStr(bk.address||'');
+    if(!addr) continue;
+    householdCounts[addr]=(householdCounts[addr]||0)+1;
+  }
 
   const ticks=[];
   for(let i=0;i<=COURT_CLOSE_HOUR-COURT_OPEN_HOUR;i++){
@@ -1739,6 +1838,7 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
             ${bookings.map(b=>{
               const mine=sameResident(b,profile)||isDefiParticipant(b);
               const isDoublon=isAdmin&&dayDoublonAddrs.has(b.address||'');
+              const isMultiResa=!isPastBooking(b)&&householdCounts[normalizeStr(b.address||'')]>=2;
               const ongoing=isOngoing(b); return html`<div class="booking-row ${ongoing?'ongoing':''} ${isPastBooking(b)?'past-booking':''}" key=${b.id}>
                 <div class="booking-time">
                   <div class="booking-time-h">${b.startTime}</div>
@@ -1748,6 +1848,8 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
                 <div class="booking-info">
                 <div class="booking-name">
                     <span>${mine?html`<em style="font-style:normal">Vous</em>`:b.name}</span>
+                    ${isMultiResa&&html`<span class="multi-badge" title="Ce foyer a plusieurs réservations aujourd'hui">Résa multiple</span>`}
+                    ${isNonPriority(b)&&html`<span class="priority-badge" title="Cette personne a déjà une réservation à venir : n'importe quel résident peut réserver ce créneau à sa place">⏳ Non prioritaire</span>`}
                     ${isDoublon&&html`<span class="doublon-badge">⚠️ Doublon</span>`}
                     ${ongoing&&html`<span style="font-size:10px;background:var(--green);color:var(--paper);padding:2px 7px;border-radius:999px;font-weight:700">🎾 En cours</span>`}
                     ${b.challengeId&&(isDefiParticipant(b)
@@ -1765,6 +1867,7 @@ function DayCard({day,profile,isAdmin,doublons,waitlist,meteo,canCancel,isDefiPa
                     if(past||mine||isPastBooking(b)) return null;
                     const sameHousehold=normalizeStr(b.address||'')===normalizeStr(profileAddr(profile));
                     if(sameHousehold) return null;
+                    if(isNonPriority(b)) return html`<button onClick=${()=>onRequestTake(b)} class="take-btn" title="Non prioritaire : vous pouvez réserver ce créneau à sa place">Prendre ce créneau</button>`;
                     const hasWaiter=waitlist&&waitlist.some(w=>w.bookingDate===b.date&&w.startTime===b.startTime);
                     const iAmWaiter=waitlist&&waitlist.some(w=>w.bookingDate===b.date&&w.startTime===b.startTime&&normalizeStr(w.address||'')===normalizeStr(profileAddr(profile)));
                     if(iAmWaiter) return html`<button onClick=${()=>onLeaveWaitlist(b)} style="font-size:10px;background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:999px;font-weight:600;white-space:nowrap;border:1px solid #F6D860;cursor:pointer;font-family:inherit">Se retirer de la liste</button>`;
@@ -2164,6 +2267,25 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
     return dayBookings.find(b=>overlaps(b,c));
   },[date,startTime,endTime,dayBookings]);
 
+  const sameFamilyDayBookings=useMemo(()=>dayBookings.filter(b=>sameHousehold(b,profile)),[dayBookings,profile]);
+
+  const consecutiveConflict=useMemo(()=>sameFamilyDayBookings.find(b=>b.endTime===startTime||b.startTime===endTime),[sameFamilyDayBookings,startTime,endTime]);
+
+  const sameDayFamilyNotice=useMemo(()=>{
+    if(consecutiveConflict) return null;
+    return sameFamilyDayBookings.find(b=>!(b.startTime===startTime&&b.endTime===endTime));
+  },[sameFamilyDayBookings,consecutiveConflict,startTime,endTime]);
+
+  // Résas à venir de la même personne (hors défis), pour la règle de priorité : si ce nouveau
+  // créneau n'est pas le plus proche dans le temps parmi ses résas, il sera non-prioritaire.
+  const personFutureBookings=useMemo(()=>existingBookings.filter(b=>!b.challengeId && sameResident(b,profile)),[existingBookings,profile]);
+  const earlierPersonBooking=useMemo(()=>{
+    const candidateKey=date+startTime;
+    return personFutureBookings
+      .filter(b=>!(b.date===date&&b.startTime===startTime)&&(b.date+b.startTime)<candidateKey)
+      .sort((a,b)=>(a.date+a.startTime).localeCompare(b.date+b.startTime))[0]||null;
+  },[personFutureBookings,date,startTime]);
+
   const totalMin=(COURT_CLOSE_HOUR-COURT_OPEN_HOUR)*60;
 
   // Part grisée de la frise = heures déjà passées aujourd'hui (non sélectionnables)
@@ -2192,6 +2314,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
   async function confirm() {
     setError(null);
     if(conflict){setError('Ce créneau est déjà réservé.');return;}
+    if(consecutiveConflict){setError('Désolé, vous ne pouvez pas réserver deux créneaux à la suite.');return;}
     // Si pas d'email connu, demander avant de confirmer
     if(!profile.email && !emailStep) { setEmailStep(true); return; }
     setSaving(true);
@@ -2247,6 +2370,9 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
       </div>
 
       ${conflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Conflit avec <strong>${conflict.name}</strong> (${conflict.startTime}–${conflict.endTime}).</div></div>`}
+      ${!conflict&&consecutiveConflict&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Désolé, vous ne pouvez pas réserver deux créneaux à la suite.</div></div>`}
+      ${!conflict&&!consecutiveConflict&&sameDayFamilyNotice&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà réservé le terrain aujourd'hui. En cas de demande d'une autre famille, celle ci sera prioritaire.</div></div>`}
+      ${!conflict&&!consecutiveConflict&&earlierPersonBooking&&html`<div class="notice warning"><${Icon} name="alert" size=${16}/><div>Vous avez déjà une réservation à venir <strong>${niceDateLabel(new Date(earlierPersonBooking.date+'T00:00:00'))} à ${earlierPersonBooking.startTime}</strong>. Ce nouveau créneau sera donc <strong>non-prioritaire</strong> : n'importe quel résident pourra le réserver à votre place tant que votre réservation précédente n'a pas eu lieu.</div></div>`}
       ${error&&html`<p class="text-error">${error}</p>`}
 
       ${emailStep&&!profile.email&&html`<div style="background:var(--bg);border-radius:14px;padding:14px;margin-bottom:14px">
@@ -2257,7 +2383,7 @@ function BookingModal({profile,existingBookings,prefill,onClose,onConfirm}) {
 
       <div class="modal-actions">
         <button class="btn btn-secondary" onClick=${onClose}>Annuler</button>
-        <button class="btn btn-primary" disabled=${!!conflict||saving||(emailStep&&!profile.email&&!emailInput.includes('@'))} onClick=${confirm}>
+        <button class="btn btn-primary" disabled=${!!conflict||!!consecutiveConflict||saving||(emailStep&&!profile.email&&!emailInput.includes('@'))} onClick=${confirm}>
           ${saving?html`<span class="spinner" style="width:14px;height:14px;border-width:2px"></span>`:html`<${Icon} name="check" size=${16}/>`}
           ${emailStep&&!profile.email?'Confirmer avec email':'Confirmer'}
         </button>
@@ -2276,7 +2402,7 @@ const niceDateLabel = d => {
    STATS VIEW
    ============================================================ */
 function StatsView({bookings,period,setPeriod,doublons,onViewHistory,onViewResidents,onViewNeighbor,onViewWeekday,onExportCSV,onOpenStatsTable,onViewHousehold}) {
-  const PERIODS=[{label:'30 jours',days:30},{label:'6 mois',days:182},{label:'12 mois',days:365}];
+  const PERIODS=[{label:'30 jours',days:30},{label:'6 mois',days:182},{label:'12 mois',days:365},{label:'Tout',days:0}];
   const stats=useMemo(()=>computeStats(bookings,period),[bookings,period]);
   const frDays=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
   const pastCount=bookings.filter(b=>isPastBooking(b)).length;
@@ -2398,11 +2524,16 @@ function NeighborView({neighbor,bookings,isAdmin,onBack}) {
   </div>`;
 }
 
-function HouseholdView({household,bookings,onBack}) {
+function HouseholdView({household,bookings,period,onBack}) {
+  const sinceStr=useMemo(()=>{
+    if(!(period>0)) return null;
+    const since=new Date();since.setDate(since.getDate()-period);
+    return dateKey(since);
+  },[period]);
   const hBookings=useMemo(()=>
-    bookings.filter(b=>normalizeStr(b.address||'')===normalizeStr(household.address))
+    bookings.filter(b=>normalizeStr(b.address||'')===normalizeStr(household.address)&&(!sinceStr||b.date>=sinceStr))
       .sort((a,b)=>b.date.localeCompare(a.date)||a.startTime.localeCompare(b.startTime))
-  ,[bookings,household]);
+  ,[bookings,household,sinceStr]);
   const past=hBookings.filter(b=>isPastBooking(b));
   const upcoming=hBookings.filter(b=>!isPastBooking(b));
 
@@ -2418,7 +2549,7 @@ function HouseholdView({household,bookings,onBack}) {
       <button class="view-back" onClick=${onBack}><${Icon} name="back" size=${18}/></button>
       <div>
         <h2 class="view-h1">Famille ${household.lastName}</h2>
-        <p class="view-sub">${household.address} · ${hBookings.length} résa${hBookings.length>1?'s':''} au total</p>
+        <p class="view-sub">${household.address} · ${hBookings.length} résa${hBookings.length>1?'s':''} ${period>0?'sur la période':'au total'}</p>
       </div>
     </div>
     <div style="padding:0 20px 40px">
@@ -2440,9 +2571,12 @@ function HouseholdView({household,bookings,onBack}) {
    WEEKDAY VIEW
    ============================================================ */
 function WeekdayView({weekday,period,bookings,onBack}) {
-  const since=new Date();since.setDate(since.getDate()-period);
-  const sinceStr=dateKey(since);
-  const filtered=useMemo(()=>bookings.filter(b=>{const d=new Date(`${b.date}T00:00:00`).getDay();return d===weekday&&b.date>=sinceStr;}),[bookings,weekday,sinceStr]);
+  const sinceStr=useMemo(()=>{
+    if(!(period>0)) return null;
+    const since=new Date();since.setDate(since.getDate()-period);
+    return dateKey(since);
+  },[period]);
+  const filtered=useMemo(()=>bookings.filter(b=>{const d=new Date(`${b.date}T00:00:00`).getDay();return d===weekday&&(!sinceStr||b.date>=sinceStr);}),[bookings,weekday,sinceStr]);
   const hourMap={};
   for(const b of filtered){const h=parseInt(b.startTime.split(':')[0]);hourMap[h]=(hourMap[h]||0)+1;}
   const top=[];for(let h=COURT_OPEN_HOUR;h<COURT_CLOSE_HOUR;h++) if(hourMap[h]) top.push({hour:h,count:hourMap[h]});
@@ -2452,7 +2586,7 @@ function WeekdayView({weekday,period,bookings,onBack}) {
     <div class="view-nav"><button class="back-btn" onClick=${onBack}><${Icon} name="back" size=${16}/> Statistiques</button></div>
     <div class="view-heading" style="margin-bottom:16px">
       <h2 class="view-h1">Les ${FR_DAYS_F[weekday]}</h2>
-      <p class="view-sub">${filtered.length} réservation${filtered.length>1?'s':''} sur la période</p>
+      <p class="view-sub">${filtered.length} réservation${filtered.length>1?'s':''} ${period>0?'sur la période':'au total'}</p>
     </div>
     <div style="padding:0 20px">
       ${top.length===0
